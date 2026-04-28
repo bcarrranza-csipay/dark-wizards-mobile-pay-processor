@@ -5,6 +5,7 @@ import com.darkwizards.payments.data.model.SaleResponse
 import com.darkwizards.payments.data.model.SettleResponse
 import com.darkwizards.payments.data.model.TransactionDetail
 import com.darkwizards.payments.util.AmountUtils
+import com.darkwizards.payments.BuildConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.post
@@ -32,7 +33,10 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class PaymentServiceImpl(
     private val httpClient: HttpClient,
-    private val baseUrl: String = "http://10.0.2.2:3000"
+    // Base URL is set per build flavor via BuildConfig:
+    //   dev flavor   → http://10.0.2.2:3000  (Android emulator localhost)
+    //   demo flavor  → https://<app-runner-url> (AWS App Runner)
+    private val baseUrl: String = BuildConfig.MCP_BASE_URL
 ) : PaymentService {
 
     companion object {

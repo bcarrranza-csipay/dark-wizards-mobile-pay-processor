@@ -31,6 +31,22 @@ android {
         }
     }
 
+    // Flavor dimension separates local dev from the AWS demo build
+    flavorDimensions += "env"
+
+    productFlavors {
+        create("dev") {
+            dimension = "env"
+            // Points to Android emulator localhost — used for local development
+            buildConfigField("String", "MCP_BASE_URL", "\"http://10.0.2.2:3000\"")
+        }
+        create("demo") {
+            dimension = "env"
+            // Points to the AWS App Runner deployment — used for the shareable demo APK
+            buildConfigField("String", "MCP_BASE_URL", "\"https://s3y53wtxx6.us-east-1.awsapprunner.com\"")
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -42,6 +58,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true  // enables BuildConfig.MCP_BASE_URL for each flavor
     }
 
     composeOptions {
