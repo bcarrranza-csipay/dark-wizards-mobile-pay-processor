@@ -1,5 +1,7 @@
 package com.darkwizards.payments.data.service
 
+import com.darkwizards.payments.data.model.ModeResponse
+import com.darkwizards.payments.data.model.SeededTransaction
 import com.darkwizards.payments.data.model.RefundResponse
 import com.darkwizards.payments.data.model.SaleResponse
 import com.darkwizards.payments.data.model.SettleResponse
@@ -265,6 +267,40 @@ class PaymentServiceImpl(
             } else {
                 Result.failure(Exception(mapNetworkException(e)))
             }
+        }
+    }
+
+    override suspend fun getMode(): Result<ModeResponse> {
+        return try {
+            val arguments = JsonObject(emptyMap())
+            val response = callTool("pyxis_get_mode", arguments)
+            val parsed = parseToolResponse(response)
+            val obj = parsed.jsonObject
+
+            val mode = obj["mode"]?.jsonPrimitive?.content ?: "simulator"
+            val seededRaw = obj["seededTransactions"]?.jsonArray ?: JsonArray(emptyList())
+            val seeded = seededRaw.map { el ->
+                val t = el.jsonObject
+                SeededTransaction(
+                    transactionId  = t["transactionId"]?.jsonPrimitive?.content ?: "",
+                    type           = t["type"]?.jsonPrimitive?.content ?: "Sale",
+                    transactionStatus = t["transactionStatus"]?.jsonPrimitive?.content ?: "Approved",
+                    totalAmount    = t["totalAmount"]?.jsonPrimitive?.content ?: "0",
+                    approvedAmount = t["approvedAmount"]?.jsonPrimitive?.content ?: "0",
+                    feeAmount      = t["feeAmount"]?.jsonPrimitive?.content ?: "0",
+                    approvalNumber = t["approvalNumber"]?.jsonPrimitive?.content ?: "",
+                    accountType    = t["accountType"]?.jsonPrimitive?.content ?: "",
+                    accountFirst6  = t["accountFirst6"]?.jsonPrimitive?.content ?: "",
+                    accountLast4   = t["accountLast4"]?.jsonPrimitive?.content ?: "",
+                    creationTime   = t["creationTime"]?.jsonPrimitive?.content ?: "",
+                    isDeclined     = t["isDeclined"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    isMockSeed     = t["isMockSeed"]?.jsonPrimitive?.booleanOrNull ?: true,
+                )
+            }
+            Result.success(ModeResponse(mode = mode, seededTransactions = seeded))
+        } catch (e: Exception) {
+            // getMode is best-effort — fall back to "simulator" if the tool doesn't exist
+            Result.success(ModeResponse(mode = "simulator"))
         }
     }
 

@@ -1,5 +1,7 @@
 package com.darkwizards.payments.data.service
 
+import com.darkwizards.payments.data.model.McpError
+import com.darkwizards.payments.data.model.ModeResponse
 import com.darkwizards.payments.data.model.RefundResponse
 import com.darkwizards.payments.data.model.SaleResponse
 import com.darkwizards.payments.data.model.SettleResponse
@@ -29,4 +31,7 @@ interface PaymentService {
 
     /** Look up a transaction by ID from MCP service */
     suspend fun getTransaction(transactionId: String): Result<TransactionDetail>
+
+    /** Get current server mode and seeded mock transactions */
+    suspend fun getMode(): Result<ModeResponse>
 }

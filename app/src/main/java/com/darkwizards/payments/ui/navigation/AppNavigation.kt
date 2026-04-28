@@ -1,6 +1,10 @@
 package com.darkwizards.payments.ui.navigation
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Receipt
@@ -12,9 +16,14 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -52,76 +61,87 @@ fun AppNavigation(
     transactionViewModel: TransactionViewModel
 ) {
     val navController = rememberNavController()
+    val serverMode by paymentViewModel.serverMode.collectAsState()
 
-    Scaffold(
-        bottomBar = { BottomNavBar(navController) }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Payment.route,
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            composable(Screen.Payment.route) {
-                PaymentScreen(
-                    viewModel = paymentViewModel,
-                    onCardPresent = { navController.navigate(Screen.CardPresent.route) },
-                    onCardNotPresent = { navController.navigate(Screen.CardNotPresent.route) }
-                )
-            }
-            composable(Screen.CardPresent.route) {
-                CardPresentScreen(
-                    viewModel = paymentViewModel,
-                    onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) }
-                )
-            }
-            composable(Screen.CardNotPresent.route) {
-                CardNotPresentScreen(
-                    viewModel = paymentViewModel,
-                    onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) }
-                )
-            }
-            composable(Screen.PinEntry.route) {
-                PinEntryScreen(
-                    viewModel = paymentViewModel,
-                    onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) }
-                )
-            }
-            composable(Screen.SignatureCapture.route) {
-                SignatureCaptureScreen(
-                    viewModel = paymentViewModel,
-                    onNavigateToResult = { navController.navigate(Screen.TransactionResult.route) }
-                )
-            }
-            composable(Screen.TransactionResult.route) {
-                TransactionResultScreen(
-                    viewModel = paymentViewModel,
-                    onNewPayment = {
-                        navController.navigate(Screen.Payment.route) {
-                            popUpTo(Screen.Payment.route) { inclusive = true }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = { BottomNavBar(navController) }
+        ) { innerPadding ->
+            NavHost(
+                navController = navController,
+                startDestination = Screen.Payment.route,
+                modifier = Modifier.padding(innerPadding)
+            ) {
+                composable(Screen.Payment.route) {
+                    PaymentScreen(
+                        viewModel = paymentViewModel,
+                        onCardPresent = { navController.navigate(Screen.CardPresent.route) },
+                        onCardNotPresent = { navController.navigate(Screen.CardNotPresent.route) }
+                    )
+                }
+                composable(Screen.CardPresent.route) {
+                    CardPresentScreen(
+                        viewModel = paymentViewModel,
+                        onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) }
+                    )
+                }
+                composable(Screen.CardNotPresent.route) {
+                    CardNotPresentScreen(
+                        viewModel = paymentViewModel,
+                        onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) }
+                    )
+                }
+                composable(Screen.PinEntry.route) {
+                    PinEntryScreen(
+                        viewModel = paymentViewModel,
+                        onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) }
+                    )
+                }
+                composable(Screen.SignatureCapture.route) {
+                    SignatureCaptureScreen(
+                        viewModel = paymentViewModel,
+                        onNavigateToResult = { navController.navigate(Screen.TransactionResult.route) }
+                    )
+                }
+                composable(Screen.TransactionResult.route) {
+                    TransactionResultScreen(
+                        viewModel = paymentViewModel,
+                        onNewPayment = {
+                            navController.navigate(Screen.Payment.route) {
+                                popUpTo(Screen.Payment.route) { inclusive = true }
+                            }
                         }
-                    }
-                )
-            }
-            composable(Screen.TransactionReport.route) {
-                TransactionReportScreen(
-                    viewModel = transactionViewModel,
-                    onTransactionClick = { transactionId ->
-                        navController.navigate(Screen.TransactionDetail.createRoute(transactionId))
-                    }
-                )
-            }
-            composable(
-                route = Screen.TransactionDetail.route,
-                arguments = listOf(navArgument("transactionId") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val transactionId = backStackEntry.arguments?.getString("transactionId") ?: ""
-                TransactionDetailScreen(
-                    viewModel = transactionViewModel,
-                    transactionId = transactionId,
-                    onBack = { navController.popBackStack() }
-                )
+                    )
+                }
+                composable(Screen.TransactionReport.route) {
+                    TransactionReportScreen(
+                        viewModel = transactionViewModel,
+                        onTransactionClick = { transactionId ->
+                            navController.navigate(Screen.TransactionDetail.createRoute(transactionId))
+                        }
+                    )
+                }
+                composable(
+                    route = Screen.TransactionDetail.route,
+                    arguments = listOf(navArgument("transactionId") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val transactionId = backStackEntry.arguments?.getString("transactionId") ?: ""
+                    TransactionDetailScreen(
+                        viewModel = transactionViewModel,
+                        transactionId = transactionId,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
             }
         }
+
+        // ── Mode badge — top-right corner ─────────────────────────────────
+        ModeBadge(
+            mode = serverMode,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 12.dp, end = 12.dp)
+        )
     }
 }
 
@@ -158,4 +178,30 @@ fun BottomNavBar(navController: NavHostController) {
             )
         }
     }
+}
+
+/**
+ * Small pill badge shown in the top-right corner of every screen.
+ * Color and label reflect the current PYXIS_MODE from the server.
+ *
+ *  simulator → grey   "SIMULATOR"
+ *  mock      → amber  "MOCK"
+ *  live      → green  "LIVE"
+ */
+@Composable
+fun ModeBadge(mode: String, modifier: Modifier = Modifier) {
+    val (label, bgColor) = when (mode) {
+        "live"      -> "LIVE"      to Color(0xFF2E7D32)   // dark green
+        "mock"      -> "MOCK"      to Color(0xFFF57F17)   // amber
+        else        -> "SIMULATOR" to Color(0xFF546E7A)   // blue-grey
+    }
+
+    Text(
+        text = label,
+        color = Color.White,
+        fontSize = 10.sp,
+        modifier = modifier
+            .background(color = bgColor, shape = RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    )
 }

@@ -24,6 +24,10 @@ class PaymentViewModel(
     private val _uiState = MutableStateFlow<PaymentUiState>(PaymentUiState.Loading)
     val uiState: StateFlow<PaymentUiState> = _uiState.asStateFlow()
 
+    // Current server mode — shown as badge in the UI
+    private val _serverMode = MutableStateFlow("simulator")
+    val serverMode: StateFlow<String> = _serverMode.asStateFlow()
+
     // Pending payment data stored between flow steps
     private var pendingAccountNumber: String = ""
     private var pendingAccountType: String = ""
@@ -39,7 +43,51 @@ class PaymentViewModel(
         _uiState.value = PaymentUiState.Loading
         viewModelScope.launch {
             paymentService.getToken().fold(
-                onSuccess = { _uiState.value = PaymentUiState.SelectPaymentType },
+                onSuccess = {
+                    // Fetch mode and seed mock transactions in parallel
+                    paymentService.getMode().fold(
+                        onSuccess = { modeResponse ->
+                            _serverMode.value = modeResponse.mode
+                            // Seed mock transactions so the report isn't empty on first launch
+                            modeResponse.seededTransactions.forEach { seeded ->
+                                val status = when (seeded.transactionStatus) {
+                                    "Declined" -> TransactionStatus.DECLINED
+                                    "Voided"   -> TransactionStatus.VOIDED
+                                    "Refunded" -> TransactionStatus.REFUNDED
+                                    else       -> TransactionStatus.APPROVED
+                                }
+                                // Parse creationTime "YYYY-MM-DD HH:mm:ss" → LocalDateTime
+                                val dateTime = try {
+                                    val parts = seeded.creationTime.split(" ")
+                                    val dateParts = parts[0].split("-")
+                                    val timeParts = parts[1].split(":")
+                                    LocalDateTime.of(
+                                        dateParts[0].toInt(), dateParts[1].toInt(), dateParts[2].toInt(),
+                                        timeParts[0].toInt(), timeParts[1].toInt(), timeParts[2].toInt()
+                                    )
+                                } catch (e: Exception) {
+                                    LocalDateTime.now()
+                                }
+                                transactionStore.addTransaction(
+                                    TransactionRecord(
+                                        transactionId = seeded.transactionId,
+                                        amount        = AmountUtils.centsToDisplay(seeded.approvedAmount),
+                                        amountCents   = seeded.approvedAmount.toIntOrNull() ?: 0,
+                                        feeAmount     = AmountUtils.centsToDisplay(seeded.feeAmount),
+                                        dateTime      = dateTime,
+                                        paymentType   = PaymentType.CARD_NOT_PRESENT,
+                                        status        = status,
+                                        approvalNumber = seeded.approvalNumber,
+                                        accountLast4  = seeded.accountLast4,
+                                        accountType   = seeded.accountType
+                                    )
+                                )
+                            }
+                        },
+                        onFailure = { /* best-effort — mode badge stays "simulator" */ }
+                    )
+                    _uiState.value = PaymentUiState.SelectPaymentType
+                },
                 onFailure = { e ->
                     _uiState.value = PaymentUiState.InitError(
                         message = e.message ?: "Failed to connect to payment service"
