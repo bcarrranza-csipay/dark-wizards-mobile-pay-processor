@@ -2,6 +2,7 @@ package com.darkwizards.payments.data.service
 
 import com.darkwizards.payments.data.model.ModeResponse
 import com.darkwizards.payments.data.model.SeededTransaction
+import com.darkwizards.payments.data.model.HistoricalTransaction
 import com.darkwizards.payments.data.model.RefundResponse
 import com.darkwizards.payments.data.model.SaleResponse
 import com.darkwizards.payments.data.model.SettleResponse
@@ -301,6 +302,43 @@ class PaymentServiceImpl(
         } catch (e: Exception) {
             // getMode is best-effort — fall back to "simulator" if the tool doesn't exist
             Result.success(ModeResponse(mode = "simulator"))
+        }
+    }
+
+    override suspend fun getAllTransactions(terminalId: String?): Result<List<HistoricalTransaction>> {
+        return try {
+            val args = if (terminalId != null)
+                JsonObject(mapOf("terminalId" to JsonPrimitive(terminalId)))
+            else
+                JsonObject(emptyMap())
+            val response = callTool("pyxis_get_all_transactions", args)
+            val parsed = parseToolResponse(response)
+            val obj = parsed.jsonObject
+            val txArray = obj["transactions"]?.jsonArray ?: JsonArray(emptyList())
+            val list = txArray.map { el ->
+                val t = el.jsonObject
+                HistoricalTransaction(
+                    transactionId      = t["transactionId"]?.jsonPrimitive?.content ?: "",
+                    type               = t["type"]?.jsonPrimitive?.content ?: "Sale",
+                    transactionStatus  = t["transactionStatus"]?.jsonPrimitive?.content ?: "Approved",
+                    terminalId         = t["terminalId"]?.jsonPrimitive?.content ?: "",
+                    totalAmount        = t["totalAmount"]?.jsonPrimitive?.content ?: "0",
+                    approvedAmount     = t["approvedAmount"]?.jsonPrimitive?.content ?: "0",
+                    feeAmount          = t["feeAmount"]?.jsonPrimitive?.content ?: "0",
+                    approvalNumber     = t["approvalNumber"]?.jsonPrimitive?.content ?: "",
+                    accountType        = t["accountType"]?.jsonPrimitive?.content ?: "",
+                    accountFirst6      = t["accountFirst6"]?.jsonPrimitive?.content ?: "",
+                    accountLast4       = t["accountLast4"]?.jsonPrimitive?.content ?: "",
+                    isDeclined         = t["isDeclined"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    creationTime       = t["creationTime"]?.jsonPrimitive?.content ?: "",
+                    settlementDate     = t["settlementDate"]?.jsonPrimitive?.content,
+                    gatewayResponseCode    = t["gatewayResponseCode"]?.jsonPrimitive?.content ?: "",
+                    gatewayResponseMessage = t["gatewayResponseMessage"]?.jsonPrimitive?.content ?: ""
+                )
+            }
+            Result.success(list)
+        } catch (e: Exception) {
+            Result.success(emptyList()) // best-effort — empty list on failure
         }
     }
 

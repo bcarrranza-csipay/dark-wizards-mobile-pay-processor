@@ -1,6 +1,8 @@
 package com.darkwizards.payments.ui.viewmodel
 
 import com.darkwizards.payments.data.TransactionStore
+import com.darkwizards.payments.data.model.HistoricalTransaction
+import com.darkwizards.payments.data.model.ModeResponse
 import com.darkwizards.payments.data.model.PaymentType
 import com.darkwizards.payments.data.model.RefundResponse
 import com.darkwizards.payments.data.model.SaleResponse
@@ -174,4 +176,10 @@ private class FakePaymentServiceForTxn : PaymentService {
 
     override suspend fun getTransaction(transactionId: String): Result<TransactionDetail> =
         Result.failure(Exception("not implemented"))
+
+    override suspend fun getMode(): Result<ModeResponse> =
+        Result.failure(Exception("not implemented"))
+
+    override suspend fun getAllTransactions(terminalId: String?): Result<List<HistoricalTransaction>> =
+        Result.success(emptyList())
 }

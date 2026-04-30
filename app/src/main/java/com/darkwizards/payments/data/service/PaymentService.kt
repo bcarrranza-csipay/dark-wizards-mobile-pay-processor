@@ -2,6 +2,7 @@ package com.darkwizards.payments.data.service
 
 import com.darkwizards.payments.data.model.McpError
 import com.darkwizards.payments.data.model.ModeResponse
+import com.darkwizards.payments.data.model.HistoricalTransaction
 import com.darkwizards.payments.data.model.RefundResponse
 import com.darkwizards.payments.data.model.SaleResponse
 import com.darkwizards.payments.data.model.SettleResponse
@@ -34,4 +35,7 @@ interface PaymentService {
 
     /** Get current server mode and seeded mock transactions */
     suspend fun getMode(): Result<ModeResponse>
+
+    /** Fetch all transaction history from the server (Redis-backed) */
+    suspend fun getAllTransactions(terminalId: String? = null): Result<List<HistoricalTransaction>>
 }

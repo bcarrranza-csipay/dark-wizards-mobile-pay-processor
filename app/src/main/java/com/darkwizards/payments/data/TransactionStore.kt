@@ -32,4 +32,8 @@ class TransactionStore {
     fun getTransaction(transactionId: String): TransactionRecord? {
         return _transactions.value.find { it.transactionId == transactionId }
     }
+
+    fun clearTransactions() {
+        _transactions.value = emptyList()
+    }
 }
