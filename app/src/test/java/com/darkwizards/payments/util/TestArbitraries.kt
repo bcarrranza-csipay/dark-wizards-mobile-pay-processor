@@ -1,6 +1,8 @@
 package com.darkwizards.payments.util
 
 import android.nfc.tech.IsoDep
+import com.darkwizards.payments.data.model.CvmResult
+import com.darkwizards.payments.data.model.EmvCardData
 import com.darkwizards.payments.data.model.TlvTag
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.arbitrary
@@ -365,6 +367,30 @@ fun Arb.Companion.emvCardData(cdcvmPerformed: Boolean): Arb<Map<Int, ByteArray>>
 }
 
 // ---------------------------------------------------------------------------
+// Arb.positiveAmount() — generates dollar amount strings in range 0.01–999999.99
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates a random positive dollar amount string in the range 0.01–999999.99,
+ * formatted with exactly two decimal places (e.g., "0.01", "42.50", "999999.99").
+ *
+ * The generator covers:
+ * - Very small amounts (0.01–0.99) — tests no minimum threshold
+ * - Normal amounts (1.00–9999.99)
+ * - Large amounts (10000.00–999999.99) — tests no maximum threshold
+ *
+ * Used by Property 7: No amount-based declines.
+ */
+fun Arb.Companion.positiveAmount(): Arb<String> = arbitrary { rs ->
+    val random = rs.random
+    // Generate a random number of cents from 1 to 99999999 (i.e., $0.01 to $999999.99)
+    val cents = 1 + random.nextLong(99_999_999L) // 1..99999999
+    val dollars = cents / 100
+    val remainingCents = cents % 100
+    "$dollars.${remainingCents.toString().padStart(2, '0')}"
+}
+
+// ---------------------------------------------------------------------------
 // Arb.pan() — generates PAN strings of 13–19 digits
 // ---------------------------------------------------------------------------
 
@@ -694,3 +720,159 @@ fun Arb.Companion.cvmListWithFirstEntry(): Arb<Pair<Map<Int, ByteArray>, com.dar
 
         Pair(emvData, expectedFirst)
     }
+
+// ---------------------------------------------------------------------------
+// Arb.emvCardData() — generates EmvCardData instances for Property 8
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates a random [EmvCardData] instance with:
+ * - `pan`: 13–19 digit string
+ * - `expiry`: `MM.YYYY` format string (e.g., "12.2026")
+ * - `accountType`: one of "Visa", "Mastercard", "Amex", "Discover"
+ * - `track2Equivalent`: ByteArray consistent with the PAN and expiry
+ * - `applicationCryptogram`: random 8-byte ByteArray
+ * - `cryptogramInfoData`: random Byte
+ * - `aip`: random 2-byte ByteArray
+ * - `cvmResult`: one of `CvmResult.NO_CVM` or `CvmResult.CDCVM` (avoids CVM prompts)
+ * - `cdcvmPerformed`: false (or true when cvmResult is CDCVM)
+ *
+ * Used by Property 8: EMV→processSale mapping.
+ */
+fun Arb.Companion.emvCardData(): Arb<EmvCardData> = arbitrary { rs ->
+    val random = rs.random
+
+    // Generate PAN: 13–19 digits
+    val panLength = 13 + random.nextInt(7) // 13..19
+    val pan = (1..panLength).map { random.nextInt(10).toString() }.joinToString("")
+
+    // Generate expiry in MM.YYYY format
+    val mm = (1 + random.nextInt(12)).toString().padStart(2, '0') // "01".."12"
+    val yyyy = (2024 + random.nextInt(10)).toString()              // "2024".."2033"
+    val expiry = "$mm.$yyyy"
+
+    // Derive account type from BIN (first 1–2 digits)
+    val accountType = when {
+        pan.startsWith("4")                                          -> "Visa"
+        pan.length >= 2 && pan.substring(0, 2).toInt() in 51..55   -> "Mastercard"
+        pan.startsWith("34") || pan.startsWith("37")                -> "Amex"
+        pan.startsWith("6011") || pan.startsWith("65")              -> "Discover"
+        else                                                         -> "Visa"
+    }
+
+    // Build a minimal Track2-equivalent ByteArray: PAN D YYMM (nibble-encoded)
+    // Format: each nibble is a digit; separator nibble is 0xD
+    // YYMM is derived from MM.YYYY: yy = last 2 digits of yyyy, mm = mm
+    val yy = yyyy.takeLast(2)
+    val track2Nibbles = pan.map { it.digitToInt() } +
+        listOf(0xD) +
+        yy.map { it.digitToInt() } +
+        mm.map { it.digitToInt() } +
+        listOf(1, 0, 1, 0) + // service code
+        listOf(0, 0, 0, 0, 0, 0, 0, 0) + // discretionary data
+        listOf(0xF) // padding nibble
+    val track2Bytes = ByteArray((track2Nibbles.size + 1) / 2) { i ->
+        val hi = track2Nibbles[i * 2]
+        val lo = if (i * 2 + 1 < track2Nibbles.size) track2Nibbles[i * 2 + 1] else 0xF
+        ((hi shl 4) or lo).toByte()
+    }
+
+    // Random 8-byte application cryptogram
+    val applicationCryptogram = ByteArray(8) { random.nextInt(256).toByte() }
+
+    // Random cryptogram info data byte
+    val cryptogramInfoData = random.nextInt(256).toByte()
+
+    // Random 2-byte AIP
+    val aip = ByteArray(2) { random.nextInt(256).toByte() }
+
+    // CvmResult: NO_CVM or CDCVM (both go straight to submission without prompts)
+    val cvmResult = if (random.nextBoolean()) CvmResult.NO_CVM else CvmResult.CDCVM
+    val cdcvmPerformed = cvmResult == CvmResult.CDCVM
+
+    EmvCardData(
+        pan = pan,
+        expiry = expiry,
+        accountType = accountType,
+        track2Equivalent = track2Bytes,
+        applicationCryptogram = applicationCryptogram,
+        cryptogramInfoData = cryptogramInfoData,
+        aip = aip,
+        cvmResult = cvmResult,
+        cdcvmPerformed = cdcvmPerformed
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Arb.saleResponse() — generates SaleResponse instances for Property 9
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates a random [SaleResponse] instance representing a successful NFC authorization.
+ *
+ * Fields:
+ * - `transactionId`: random alphanumeric string (e.g., "txn-a3f9b2")
+ * - `approvedAmount`: random amount in cents as a string (e.g., "2500")
+ * - `feeAmount`: random fee in cents as a string (e.g., "75")
+ * - `approvalNumber`: random 6-character alphanumeric approval code
+ * - `accountType`: one of "Visa", "Mastercard", "Amex", "Discover"
+ * - `accountFirst6`: random 6-digit string (BIN)
+ * - `accountLast4`: random 4-digit string
+ *
+ * Used by Property 9: Successful NFC transaction stored with CARD_PRESENT payment type.
+ */
+fun Arb.Companion.saleResponse(): Arb<com.darkwizards.payments.data.model.SaleResponse> = arbitrary { rs ->
+    val random = rs.random
+
+    val chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+    fun randomAlphaNum(length: Int) = (1..length).map { chars[random.nextInt(chars.length)] }.joinToString("")
+    fun randomDigits(length: Int) = (1..length).map { random.nextInt(10).toString() }.joinToString("")
+
+    val transactionId = "txn-${randomAlphaNum(6)}"
+    // Approved amount: 1 cent to $9999.99 (1..999999 cents)
+    val approvedAmount = (1 + random.nextInt(999999)).toString()
+    // Fee amount: 0 to $99.99 (0..9999 cents)
+    val feeAmount = random.nextInt(10000).toString()
+    val approvalNumber = randomAlphaNum(6).uppercase()
+    val accountType = listOf("Visa", "Mastercard", "Amex", "Discover")[random.nextInt(4)]
+    val accountFirst6 = randomDigits(6)
+    val accountLast4 = randomDigits(4)
+
+    com.darkwizards.payments.data.model.SaleResponse(
+        transactionId = transactionId,
+        approvedAmount = approvedAmount,
+        feeAmount = feeAmount,
+        approvalNumber = approvalNumber,
+        accountType = accountType,
+        accountFirst6 = accountFirst6,
+        accountLast4 = accountLast4
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Arb.emvFailureMode() — generates Throwable instances for EMV failure modes
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates a random [Throwable] representing one of the possible EMV failure modes
+ * that [EmvKernel.readCard] can return as a [Result.failure].
+ *
+ * Failure modes covered:
+ * 1. [java.io.IOException] — card removed too soon (tag lost mid-read)
+ * 2. [kotlinx.coroutines.TimeoutCancellationException] — card read timed out (10s limit)
+ * 3. [Exception] with "Card not supported" — PPSE SELECT failed or no supported AIDs
+ * 4. [Exception] with "Card read error" — non-success APDU status word
+ * 5. [Exception] with "Card data incomplete" — missing mandatory tag (57, 5A, 5F24, 9F26, 9F27, 82, 94)
+ *
+ * Used by Property 10: EMV failure prevents processSale call.
+ */
+fun Arb.Companion.emvFailureMode(): Arb<Throwable> = arbitrary { rs ->
+    val random = rs.random
+    when (random.nextInt(5)) {
+        0 -> java.io.IOException("Card removed too soon — please try again")
+        1 -> Exception("Card read timed out — please try again")
+        2 -> Exception("Card not supported — please try a different card")
+        3 -> Exception("Card read error — please try again")
+        else -> Exception("Card data incomplete — please try again")
+    }
+}

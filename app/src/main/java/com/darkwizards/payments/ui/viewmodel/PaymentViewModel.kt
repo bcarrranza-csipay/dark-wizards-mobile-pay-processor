@@ -1,19 +1,31 @@
 package com.darkwizards.payments.ui.viewmodel
 
+import android.content.Context
+import android.nfc.NfcAdapter
+import android.nfc.Tag
+import android.nfc.tech.IsoDep
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.darkwizards.payments.data.TransactionStore
+import com.darkwizards.payments.data.model.CvmResult
+import com.darkwizards.payments.data.model.EmvCardData
+import com.darkwizards.payments.data.model.NfcAvailability
 import com.darkwizards.payments.data.model.PaymentType
 import com.darkwizards.payments.data.model.PaymentUiState
 import com.darkwizards.payments.data.model.SaleResponse
 import com.darkwizards.payments.data.model.TransactionRecord
 import com.darkwizards.payments.data.model.TransactionStatus
 import com.darkwizards.payments.data.service.PaymentService
+import com.darkwizards.payments.domain.EmvKernel
 import com.darkwizards.payments.util.AmountUtils
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.time.LocalDateTime
 
 /** The three modes the user can pick from the badge sheet. */
@@ -29,7 +41,9 @@ enum class PaymentMode(val key: String, val label: String) {
 
 class PaymentViewModel(
     private val paymentService: PaymentService,
-    private val transactionStore: TransactionStore
+    private val transactionStore: TransactionStore,
+    internal val isoDepFactory: (Tag) -> IsoDep? = { tag -> IsoDep.get(tag) },
+    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PaymentUiState>(PaymentUiState.Loading)
@@ -49,6 +63,14 @@ class PaymentViewModel(
     private var pendingExpiry: String = ""
     private var pendingAmountDollars: String = ""
     private var pendingPaymentType: PaymentType = PaymentType.CARD_NOT_PRESENT
+
+    /** Exposed for TapScreen to display the merchant-entered amount while waiting for a tap. */
+    internal val currentAmountDollars: String get() = pendingAmountDollars
+
+    // NFC-specific fields
+    private var pendingNfcCardData: EmvCardData? = null
+    private var nfcTimeoutJob: Job? = null
+    private var nfcRetryCount: Int = 0
 
     init {
         initToken()
@@ -210,9 +232,211 @@ class PaymentViewModel(
         _uiState.value = PaymentUiState.PinEntry()
     }
 
+    // ── NFC methods ───────────────────────────────────────────────────────────
+
+    fun checkNfcAvailability(context: Context) {
+        val adapter = NfcAdapter.getDefaultAdapter(context)
+        when {
+            adapter == null -> {
+                _uiState.value = PaymentUiState.NfcHardwareUnavailable(NfcAvailability.NoHardware)
+            }
+            !adapter.isEnabled -> {
+                _uiState.value = PaymentUiState.NfcHardwareUnavailable(NfcAvailability.Disabled)
+            }
+            else -> {
+                _uiState.value = PaymentUiState.NfcWaiting
+                nfcTimeoutJob?.cancel()
+                nfcTimeoutJob = viewModelScope.launch {
+                    delay(60_000L)
+                    onNfcTimeout()
+                }
+            }
+        }
+    }
+
+    fun onNfcTimeout() {
+        nfcTimeoutJob?.cancel()
+        nfcTimeoutJob = null
+        _uiState.value = PaymentUiState.NfcTimeout(pendingAmountDollars)
+    }
+
+    fun onNfcTagDiscovered(tag: Tag) {
+        nfcTimeoutJob?.cancel()
+        nfcTimeoutJob = null
+        _uiState.value = PaymentUiState.NfcReading
+        viewModelScope.launch {
+            val isoDep = withContext(ioDispatcher) { isoDepFactory(tag) }
+            if (isoDep == null) {
+                _uiState.value = PaymentUiState.NfcError(
+                    message = "Card read error",
+                    canRetryTap = true,
+                    canRetrySubmit = false
+                )
+                return@launch
+            }
+            val result = withContext(ioDispatcher) { EmvKernel.readCard(isoDep) }
+            result.fold(
+                onSuccess = { cardData ->
+                    determineCvmState(cardData)
+                },
+                onFailure = { e ->
+                    _uiState.value = PaymentUiState.NfcError(
+                        message = e.message ?: "Card read error",
+                        canRetryTap = true,
+                        canRetrySubmit = false
+                    )
+                }
+            )
+        }
+    }
+
+    private fun determineCvmState(cardData: EmvCardData) {
+        pendingNfcCardData = cardData
+        pendingAccountNumber = cardData.pan
+        pendingAccountType = cardData.accountType
+        pendingExpiry = cardData.expiry
+        pendingPaymentType = PaymentType.CARD_PRESENT
+
+        when (cardData.cvmResult) {
+            CvmResult.ONLINE_PIN -> {
+                _uiState.value = PaymentUiState.NfcCvmRequired(CvmResult.ONLINE_PIN, cardData)
+            }
+            CvmResult.SIGNATURE -> {
+                _uiState.value = PaymentUiState.NfcSubmitting
+                viewModelScope.launch {
+                    paymentService.processSale(
+                        accountNumber      = cardData.pan,
+                        accountType        = cardData.accountType,
+                        expiry             = cardData.expiry,
+                        totalAmountDollars = pendingAmountDollars
+                    ).fold(
+                        onSuccess = { saleResponse ->
+                            addTransactionRecord(saleResponse)
+                            _uiState.value = PaymentUiState.NfcCvmRequired(CvmResult.SIGNATURE, cardData)
+                        },
+                        onFailure = { e ->
+                            _uiState.value = PaymentUiState.NfcError(
+                                message = e.message ?: "Payment failed",
+                                canRetryTap = false,
+                                canRetrySubmit = true,
+                                retryCount = nfcRetryCount
+                            )
+                        }
+                    )
+                }
+            }
+            CvmResult.NO_CVM, CvmResult.CDCVM -> {
+                _uiState.value = PaymentUiState.NfcSubmitting
+                viewModelScope.launch {
+                    paymentService.processSale(
+                        accountNumber      = cardData.pan,
+                        accountType        = cardData.accountType,
+                        expiry             = cardData.expiry,
+                        totalAmountDollars = pendingAmountDollars
+                    ).fold(
+                        onSuccess = { saleResponse ->
+                            addTransactionRecord(saleResponse)
+                            _uiState.value = PaymentUiState.Success(
+                                result      = saleResponse,
+                                paymentType = PaymentType.CARD_PRESENT
+                            )
+                        },
+                        onFailure = { e ->
+                            _uiState.value = PaymentUiState.NfcError(
+                                message = e.message ?: "Payment failed",
+                                canRetryTap = false,
+                                canRetrySubmit = true,
+                                retryCount = nfcRetryCount
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    fun retryNfcSubmission() {
+        if (nfcRetryCount >= 3) {
+            _uiState.value = PaymentUiState.NfcError(
+                message = "Please tap card again",
+                canRetryTap = true,
+                canRetrySubmit = false,
+                retryCount = nfcRetryCount
+            )
+            return
+        }
+        nfcRetryCount++
+        val cardData = pendingNfcCardData ?: run {
+            _uiState.value = PaymentUiState.NfcError(
+                message = "Please tap card again",
+                canRetryTap = true,
+                canRetrySubmit = false,
+                retryCount = nfcRetryCount
+            )
+            return
+        }
+        _uiState.value = PaymentUiState.NfcSubmitting
+        viewModelScope.launch {
+            paymentService.processSale(
+                accountNumber      = cardData.pan,
+                accountType        = cardData.accountType,
+                expiry             = cardData.expiry,
+                totalAmountDollars = pendingAmountDollars
+            ).fold(
+                onSuccess = { saleResponse ->
+                    addTransactionRecord(saleResponse)
+                    nfcRetryCount = 0
+                    _uiState.value = PaymentUiState.Success(
+                        result      = saleResponse,
+                        paymentType = PaymentType.CARD_PRESENT
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = PaymentUiState.NfcError(
+                        message = e.message ?: "Payment failed",
+                        canRetryTap = nfcRetryCount >= 3,
+                        canRetrySubmit = nfcRetryCount < 3,
+                        retryCount = nfcRetryCount
+                    )
+                }
+            )
+        }
+    }
+
     fun submitPin(pin: String) {
         if (pin.length == 4 && pin.all { it.isDigit() }) {
-            _uiState.value = PaymentUiState.SignatureCapture
+            val currentState = _uiState.value
+            if (currentState is PaymentUiState.NfcCvmRequired && currentState.cvm == CvmResult.ONLINE_PIN) {
+                // NFC Online PIN path: submit the NFC sale
+                val cardData = currentState.cardData
+                _uiState.value = PaymentUiState.NfcSubmitting
+                viewModelScope.launch {
+                    paymentService.processSale(
+                        accountNumber      = cardData.pan,
+                        accountType        = cardData.accountType,
+                        expiry             = cardData.expiry,
+                        totalAmountDollars = pendingAmountDollars
+                    ).fold(
+                        onSuccess = { saleResponse ->
+                            addTransactionRecord(saleResponse)
+                            _uiState.value = PaymentUiState.Success(
+                                result      = saleResponse,
+                                paymentType = PaymentType.CARD_PRESENT
+                            )
+                        },
+                        onFailure = { e ->
+                            _uiState.value = PaymentUiState.NfcError(
+                                message = e.message ?: "Payment failed",
+                                canRetryTap = false,
+                                canRetrySubmit = true,
+                                retryCount = nfcRetryCount
+                            )
+                        }
+                    )
+                }
+            } else {
+                _uiState.value = PaymentUiState.SignatureCapture
+            }
         }
     }
 

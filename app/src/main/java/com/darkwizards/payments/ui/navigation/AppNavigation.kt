@@ -1,5 +1,7 @@
 package com.darkwizards.payments.ui.navigation
 
+import android.app.Activity
+import android.nfc.NfcAdapter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -34,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,10 +50,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.darkwizards.payments.ui.screen.CardNotPresentScreen
-import com.darkwizards.payments.ui.screen.CardPresentScreen
 import com.darkwizards.payments.ui.screen.PaymentScreen
 import com.darkwizards.payments.ui.screen.PinEntryScreen
 import com.darkwizards.payments.ui.screen.SignatureCaptureScreen
+import com.darkwizards.payments.ui.screen.TapScreen
 import com.darkwizards.payments.ui.screen.TransactionDetailScreen
 import com.darkwizards.payments.ui.screen.TransactionReportScreen
 import com.darkwizards.payments.ui.screen.TransactionResultScreen
@@ -97,9 +100,19 @@ fun AppNavigation(
                     )
                 }
                 composable(Screen.CardPresent.route) {
-                    CardPresentScreen(
+                    val context = LocalContext.current
+                    TapScreen(
                         viewModel            = paymentViewModel,
-                        onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) }
+                        nfcAdapter           = NfcAdapter.getDefaultAdapter(context),
+                        activity             = context as Activity,
+                        onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) },
+                        onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) },
+                        onNavigateToResult   = { navController.navigate(Screen.TransactionResult.route) },
+                        onNavigateBack       = {
+                            navController.navigate(Screen.Payment.route) {
+                                popUpTo(Screen.Payment.route) { inclusive = false }
+                            }
+                        }
                     )
                 }
                 composable(Screen.CardNotPresent.route) {
