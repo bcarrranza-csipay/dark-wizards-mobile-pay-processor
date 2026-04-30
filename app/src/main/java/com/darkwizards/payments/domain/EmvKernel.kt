@@ -5,6 +5,7 @@ import com.darkwizards.payments.data.model.AflEntry
 import com.darkwizards.payments.data.model.AidEntry
 import com.darkwizards.payments.data.model.CvmResult
 import com.darkwizards.payments.data.model.EmvCardData
+import com.darkwizards.payments.util.NfcLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
@@ -367,9 +368,13 @@ object EmvKernel {
     private fun readCardInternal(isoDep: IsoDep): Result<EmvCardData> {
         // Connect if not already connected
         if (!isoDep.isConnected) {
+            NfcLogger.d("EmvKernel", "Connecting IsoDep...")
             isoDep.connect()
+            NfcLogger.d("EmvKernel", "IsoDep connected. MaxTransceiveLength=${isoDep.maxTransceiveLength}")
+        } else {
+            NfcLogger.d("EmvKernel", "IsoDep already connected")
         }
-        isoDep.timeout = 9_000  // 9s hardware timeout (within our 10s coroutine timeout)
+        isoDep.timeout = 9_000
 
         // Accumulated TLV data from all records
         val emvData = mutableMapOf<Int, ByteArray>()
@@ -377,10 +382,13 @@ object EmvKernel {
         // -----------------------------------------------------------------------
         // Step 1: SELECT PPSE
         // -----------------------------------------------------------------------
+        NfcLogger.d("EmvKernel", "Step 1: SELECT PPSE")
         val ppseApdu = buildSelectPpseApdu()
         val ppseResponse = isoDep.transceive(ppseApdu)
+        NfcLogger.d("EmvKernel", "PPSE response len=${ppseResponse.size} SW=${if (ppseResponse.size >= 2) "%02X%02X".format(ppseResponse[ppseResponse.size-2], ppseResponse[ppseResponse.size-1]) else "N/A"}")
 
         if (ppseResponse.size < 2) {
+            NfcLogger.e("EmvKernel", "PPSE response too short")
             return Result.failure(Exception("Card not supported — please try a different card"))
         }
 
@@ -388,7 +396,7 @@ object EmvKernel {
         val ppseSw2 = ppseResponse[ppseResponse.size - 1]
 
         if (!isSuccessStatus(ppseSw1, ppseSw2)) {
-            android.util.Log.d("EmvKernel", "PPSE SELECT failed: SW=${"%02X%02X".format(ppseSw1, ppseSw2)}")
+            NfcLogger.e("EmvKernel", "PPSE SELECT failed: SW=${"%02X%02X".format(ppseSw1, ppseSw2)}")
             return Result.failure(Exception("Card not supported — please try a different card"))
         }
 
@@ -396,19 +404,25 @@ object EmvKernel {
         // Step 2: Parse AID list and select highest-priority AID
         // -----------------------------------------------------------------------
         val aids = parseAidList(ppseResponse)
+        NfcLogger.d("EmvKernel", "Step 2: Found ${aids.size} AIDs: ${aids.joinToString { it.aid.joinToString("") { b -> "%02X".format(b) } }}")
         if (aids.isEmpty()) {
+            NfcLogger.e("EmvKernel", "No AIDs found in PPSE response")
             return Result.failure(Exception("Card not supported — please try a different card"))
         }
 
         val selectedAid = selectHighestPriorityAid(aids)
+        NfcLogger.d("EmvKernel", "Selected AID: ${selectedAid.aid.joinToString("") { "%02X".format(it) }} priority=${selectedAid.priority}")
 
         // -----------------------------------------------------------------------
         // Step 3: SELECT AID
         // -----------------------------------------------------------------------
+        NfcLogger.d("EmvKernel", "Step 3: SELECT AID")
         val selectAidApdu = buildSelectAidApdu(selectedAid.aid)
         val selectAidResponse = isoDep.transceive(selectAidApdu)
+        NfcLogger.d("EmvKernel", "SELECT AID response len=${selectAidResponse.size} SW=${if (selectAidResponse.size >= 2) "%02X%02X".format(selectAidResponse[selectAidResponse.size-2], selectAidResponse[selectAidResponse.size-1]) else "N/A"}")
 
         if (selectAidResponse.size < 2) {
+            NfcLogger.e("EmvKernel", "SELECT AID response too short")
             return Result.failure(Exception("Card read error — please try again"))
         }
 
@@ -416,7 +430,7 @@ object EmvKernel {
         val selectSw2 = selectAidResponse[selectAidResponse.size - 1]
 
         if (!isSuccessStatus(selectSw1, selectSw2)) {
-            android.util.Log.d("EmvKernel", "SELECT AID failed: SW=${"%02X%02X".format(selectSw1, selectSw2)}")
+            NfcLogger.e("EmvKernel", "SELECT AID failed: SW=${"%02X%02X".format(selectSw1, selectSw2)}")
             return Result.failure(Exception("Card read error — please try again"))
         }
 
@@ -425,21 +439,29 @@ object EmvKernel {
         val fciTags = BerTlvParser.parse(fciData)
         collectTlvData(fciTags, emvData)
 
-        // Extract PDOL from FCI (tag 9F38) if present
+        // Extract PDOL from FCI (tag 9F38) if present — build correct-length data
         val pdolTag = BerTlvParser.findTag(fciTags, byteArrayOf(0x9F.toByte(), 0x38.toByte()))
         val pdolData = if (pdolTag != null && pdolTag.value.isNotEmpty()) {
-            TERMINAL_PDOL_DATA
+            // Build PDOL data by filling each field with zeros of the correct length
+            // This satisfies the card's length requirements even if values are dummy
+            buildPdolData(pdolTag.value).also {
+                NfcLogger.d("EmvKernel", "PDOL template len=${pdolTag.value.size} → pdolData len=${it.size}")
+            }
         } else {
+            NfcLogger.d("EmvKernel", "No PDOL in FCI — sending empty GPO")
             ByteArray(0)
         }
 
         // -----------------------------------------------------------------------
         // Step 4: GET PROCESSING OPTIONS (GPO)
         // -----------------------------------------------------------------------
+        NfcLogger.d("EmvKernel", "Step 4: GPO pdolLen=${pdolData.size}")
         val gpoApdu = buildGpoApdu(pdolData)
         val gpoResponse = isoDep.transceive(gpoApdu)
+        NfcLogger.d("EmvKernel", "GPO response len=${gpoResponse.size} SW=${if (gpoResponse.size >= 2) "%02X%02X".format(gpoResponse[gpoResponse.size-2], gpoResponse[gpoResponse.size-1]) else "N/A"}")
 
         if (gpoResponse.size < 2) {
+            NfcLogger.e("EmvKernel", "GPO response too short")
             return Result.failure(Exception("Card read error — please try again"))
         }
 
@@ -447,7 +469,7 @@ object EmvKernel {
         val gpoSw2 = gpoResponse[gpoResponse.size - 1]
 
         if (!isSuccessStatus(gpoSw1, gpoSw2)) {
-            android.util.Log.d("EmvKernel", "GPO failed: SW=${"%02X%02X".format(gpoSw1, gpoSw2)}")
+            NfcLogger.e("EmvKernel", "GPO failed: SW=${"%02X%02X".format(gpoSw1, gpoSw2)}")
             return Result.failure(Exception("Card read error — please try again"))
         }
 
@@ -477,11 +499,13 @@ object EmvKernel {
         // Step 5: READ RECORD for all AFL entries
         // -----------------------------------------------------------------------
         val aflEntries = parseAfl(aflBytes)
+        NfcLogger.d("EmvKernel", "Step 5: READ RECORD aflEntries=${aflEntries.size}")
 
         for (aflEntry in aflEntries) {
             for (record in aflEntry.firstRecord..aflEntry.lastRecord) {
                 val readRecordApdu = buildReadRecordApdu(aflEntry.sfi, record)
                 val recordResponse = isoDep.transceive(readRecordApdu)
+                NfcLogger.d("EmvKernel", "READ RECORD SFI=${aflEntry.sfi} rec=$record SW=${if (recordResponse.size >= 2) "%02X%02X".format(recordResponse[recordResponse.size-2], recordResponse[recordResponse.size-1]) else "N/A"}")
 
                 if (recordResponse.size < 2) continue
 
@@ -489,7 +513,7 @@ object EmvKernel {
                 val recSw2 = recordResponse[recordResponse.size - 1]
 
                 if (!isSuccessStatus(recSw1, recSw2)) {
-                    android.util.Log.d("EmvKernel", "READ RECORD SFI=${aflEntry.sfi} rec=$record failed: SW=${"%02X%02X".format(recSw1, recSw2)}")
+                    NfcLogger.e("EmvKernel", "READ RECORD SFI=${aflEntry.sfi} rec=$record failed: SW=${"%02X%02X".format(recSw1, recSw2)}")
                     return Result.failure(Exception("Card read error — please try again"))
                 }
 
@@ -498,14 +522,18 @@ object EmvKernel {
                 collectTlvData(recordTags, emvData)
             }
         }
+        NfcLogger.d("EmvKernel", "Records read. emvData keys: ${emvData.keys.map { "0x%X".format(it) }}")
 
         // -----------------------------------------------------------------------
         // Step 6: GENERATE AC (ARQC)
         // -----------------------------------------------------------------------
+        NfcLogger.d("EmvKernel", "Step 6: GENERATE AC cdolLen=${FIXED_CDOL1_DATA.size}")
         val generateAcApdu = buildGenerateAcApdu(FIXED_CDOL1_DATA)
         val generateAcResponse = isoDep.transceive(generateAcApdu)
+        NfcLogger.d("EmvKernel", "GENERATE AC response len=${generateAcResponse.size} SW=${if (generateAcResponse.size >= 2) "%02X%02X".format(generateAcResponse[generateAcResponse.size-2], generateAcResponse[generateAcResponse.size-1]) else "N/A"}")
 
         if (generateAcResponse.size < 2) {
+            NfcLogger.e("EmvKernel", "GENERATE AC response too short")
             return Result.failure(Exception("Card read error — please try again"))
         }
 
@@ -513,7 +541,7 @@ object EmvKernel {
         val acSw2 = generateAcResponse[generateAcResponse.size - 1]
 
         if (!isSuccessStatus(acSw1, acSw2)) {
-            android.util.Log.d("EmvKernel", "GENERATE AC failed: SW=${"%02X%02X".format(acSw1, acSw2)}")
+            NfcLogger.e("EmvKernel", "GENERATE AC failed: SW=${"%02X%02X".format(acSw1, acSw2)}")
             return Result.failure(Exception("Card read error — please try again"))
         }
 
@@ -534,7 +562,6 @@ object EmvKernel {
             ?: return Result.failure(Exception("Card data incomplete — please try again"))
         val aip = emvData[0x82]
             ?: return Result.failure(Exception("Card data incomplete — please try again"))
-        // Tag 94 (AFL) and 5A (PAN) are also mandatory per spec
         if (emvData[0x94] == null) {
             return Result.failure(Exception("Card data incomplete — please try again"))
         }
@@ -574,6 +601,32 @@ object EmvKernel {
                 cdcvmPerformed = cdcvmPerformed
             )
         )
+    }
+
+    /**
+     * Builds GPO command data from the card's PDOL template (tag 9F38).
+     * The PDOL is a list of (tag, length) pairs. We fill each field with
+     * zeros of the correct length — this satisfies the card's length check
+     * (SW=6985 "conditions not satisfied" is often caused by wrong PDOL length).
+     */
+    private fun buildPdolData(pdolTemplate: ByteArray): ByteArray {
+        val result = mutableListOf<Byte>()
+        var i = 0
+        while (i < pdolTemplate.size) {
+            // Read tag (1 or 2 bytes)
+            val firstByte = pdolTemplate[i].toInt() and 0xFF
+            i++
+            if ((firstByte and 0x1F) == 0x1F && i < pdolTemplate.size) {
+                i++ // skip second byte of 2-byte tag
+            }
+            // Read length
+            if (i >= pdolTemplate.size) break
+            val len = pdolTemplate[i].toInt() and 0xFF
+            i++
+            // Fill with zeros of the specified length
+            repeat(len) { result.add(0x00.toByte()) }
+        }
+        return result.toByteArray()
     }
 
     /**

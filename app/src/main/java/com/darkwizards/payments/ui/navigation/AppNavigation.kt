@@ -4,11 +4,9 @@ import android.app.Activity
 import android.nfc.NfcAdapter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -69,7 +68,8 @@ data class BottomNavItem(
 
 val bottomNavItems = listOf(
     BottomNavItem("Pay",          Icons.Default.CreditCard, Screen.Payment.route),
-    BottomNavItem("Transactions", Icons.Default.Receipt,    Screen.TransactionReport.route)
+    BottomNavItem("Transactions", Icons.Default.Receipt,    Screen.TransactionReport.route),
+    BottomNavItem("Settings",     Icons.Default.Settings,   "settings")
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,9 +83,8 @@ fun AppNavigation(
     val showModePicker  by paymentViewModel.showModePicker.collectAsState()
     val sheetState      = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            bottomBar = { BottomNavBar(navController) }
+    Scaffold(
+            bottomBar = { BottomNavBar(navController, onSettingsTap = { paymentViewModel.openModePicker() }) }
         ) { innerPadding ->
             NavHost(
                 navController    = navController,
@@ -118,7 +117,8 @@ fun AppNavigation(
                 composable(Screen.CardNotPresent.route) {
                     CardNotPresentScreen(
                         viewModel            = paymentViewModel,
-                        onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) }
+                        onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) },
+                        onNavigateBack       = { navController.popBackStack() }
                     )
                 }
                 composable(Screen.PinEntry.route) {
@@ -164,16 +164,6 @@ fun AppNavigation(
                 }
             }
         }
-
-        // ── Tappable mode badge — top-right corner ────────────────────────
-        ModeBadge(
-            mode     = selectedMode,
-            onClick  = { paymentViewModel.openModePicker() },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 12.dp, end = 12.dp)
-        )
-    }
 
     // ── Mode picker bottom sheet ──────────────────────────────────────────
     if (showModePicker) {
@@ -273,7 +263,7 @@ private fun ModePickerSheet(
 // ── Bottom nav ────────────────────────────────────────────────────────────────
 
 @Composable
-fun BottomNavBar(navController: NavHostController) {
+fun BottomNavBar(navController: NavHostController, onSettingsTap: () -> Unit) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
@@ -283,10 +273,14 @@ fun BottomNavBar(navController: NavHostController) {
             NavigationBarItem(
                 selected = selected,
                 onClick  = {
-                    navController.navigate(item.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState    = true
+                    if (item.route == "settings") {
+                        onSettingsTap()
+                    } else {
+                        navController.navigate(item.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState    = true
+                        }
                     }
                 },
                 icon   = { Icon(item.icon, contentDescription = item.label) },

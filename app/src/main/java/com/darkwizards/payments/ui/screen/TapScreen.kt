@@ -13,7 +13,10 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,12 +24,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contactless
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -36,16 +47,24 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.darkwizards.payments.data.model.CvmResult
 import com.darkwizards.payments.data.model.NfcAvailability
 import com.darkwizards.payments.data.model.PaymentUiState
 import com.darkwizards.payments.ui.viewmodel.PaymentViewModel
+import com.darkwizards.payments.util.NfcLogger
 
 @Composable
 fun TapScreen(
@@ -60,10 +79,16 @@ fun TapScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
 
-    // Check NFC availability on screen entry
-    LaunchedEffect(Unit) {
-        viewModel.checkNfcAvailability(context)
-    }
+    // Local amount state — entered before NFC activates
+    var amount by remember { mutableStateOf("") }
+    var amountError by remember { mutableStateOf(false) }
+    var nfcStarted by remember { mutableStateOf(false) }
+
+    // Debug log overlay state
+    var showLogs by remember { mutableStateOf(false) }
+
+    // Only check NFC availability after user taps "Start Tap-to-Pay"
+    // (not on screen entry — avoids starting the 60s timeout during amount entry)
 
     // Enable NFC reader mode on entry, disable on exit
     DisposableEffect(Unit) {
@@ -100,14 +125,15 @@ fun TapScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        when (val state = uiState) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            when (val state = uiState) {
 
             // ── NFC hardware unavailable ──────────────────────────────────────
             is PaymentUiState.NfcHardwareUnavailable -> {
@@ -167,37 +193,14 @@ fun TapScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onBackground
                 )
-                Spacer(modifier = Modifier.height(24.dp))
-
-                val textFieldColors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    focusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                    disabledBorderColor = MaterialTheme.colorScheme.surfaceVariant,
-                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                // pendingAmountDollars is exposed as internal currentAmountDollars
-                OutlinedTextField(
-                    value = viewModel.currentAmountDollars,
-                    onValueChange = { /* read-only */ },
-                    label = { Text("Amount ($)") },
-                    readOnly = true,
-                    enabled = false,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = textFieldColors,
-                    singleLine = true
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "$$amount",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Animated NFC icon
                 val infiniteTransition = rememberInfiniteTransition(label = "nfc_rotation")
                 val rotation by infiniteTransition.animateFloat(
                     initialValue = 0f,
@@ -208,7 +211,6 @@ fun TapScreen(
                     ),
                     label = "nfc_icon_rotation"
                 )
-
                 Icon(
                     imageVector = Icons.Default.Contactless,
                     contentDescription = "NFC contactless icon",
@@ -218,7 +220,6 @@ fun TapScreen(
                         .graphicsLayer { rotationZ = rotation }
                 )
                 Spacer(modifier = Modifier.height(24.dp))
-
                 Text(
                     text = "Hold card or phone near the back of this device",
                     style = MaterialTheme.typography.bodyLarge,
@@ -226,7 +227,6 @@ fun TapScreen(
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(32.dp))
-
                 Button(
                     onClick = onNavigateBack,
                     colors = ButtonDefaults.buttonColors(
@@ -344,13 +344,156 @@ fun TapScreen(
                 )
             }
 
-            // ── All other states (Loading, SelectPaymentType, etc.) ───────────
+            // ── All other states (Loading, SelectPaymentType, CardPresentEntry, etc.) ───────────
             else -> {
-                CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(64.dp)
-                )
+                // Show amount entry if NFC hasn't started yet
+                if (!nfcStarted) {
+                    Text(
+                        text = "Tap-to-Pay",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    val textFieldColors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = amount,
+                        onValueChange = { amount = it; amountError = false },
+                        label = { Text("Amount ($)") },
+                        isError = amountError,
+                        supportingText = if (amountError) {{ Text("Enter a valid amount") }} else null,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = textFieldColors,
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = {
+                            if (amount.isBlank() || amount.toDoubleOrNull() == null || amount.toDouble() <= 0) {
+                                amountError = true
+                            } else {
+                                viewModel.submitCardPresent(amount)
+                                viewModel.checkNfcAvailability(context)
+                                nfcStarted = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Start Tap-to-Pay")
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = onNavigateBack,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary
+                        )
+                    ) {
+                        Text("Cancel")
+                    }
+                } else {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(64.dp)
+                    )
+                }
             }
         }
-    }
+    } // end Column
+
+        // ── Debug log button — top-left corner ────────────────────────────
+        IconButton(
+            onClick = { showLogs = !showLogs },
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(4.dp)
+                .size(32.dp)
+                .background(Color.Black.copy(alpha = 0.25f), CircleShape)
+        ) {
+            Icon(
+                imageVector = Icons.Default.BugReport,
+                contentDescription = "Debug logs",
+                tint = Color.White.copy(alpha = 0.6f),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        // ── Log overlay ───────────────────────────────────────────────────
+        if (showLogs) {
+            val logs = NfcLogger.getLines()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.88f))
+                    .padding(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 48.dp)
+                ) {
+                    Text(
+                        text = "NFC Debug Log (${logs.size} lines)",
+                        color = Color.Yellow,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    if (logs.isEmpty()) {
+                        Text(
+                            text = "No logs yet — tap a card to generate logs",
+                            color = Color.Gray,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    } else {
+                        logs.reversed().forEach { line ->
+                            val color = when {
+                                line.startsWith("[") && line.contains("] E/") -> Color(0xFFFF6B6B)
+                                line.startsWith("[") && line.contains("] D/") -> Color(0xFFADD8E6)
+                                else -> Color.White
+                            }
+                            Text(
+                                text = line,
+                                color = color,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 13.sp
+                            )
+                        }
+                    }
+                }
+                // Close + Clear buttons
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                ) {
+                    Button(
+                        onClick = { NfcLogger.clear() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
+                        modifier = Modifier.size(width = 80.dp, height = 32.dp)
+                    ) {
+                        Text("Clear", fontSize = 10.sp, color = Color.White)
+                    }
+                }
+                IconButton(
+                    onClick = { showLogs = false },
+                    modifier = Modifier.align(Alignment.TopEnd)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close logs", tint = Color.White)
+                }
+            }
+        }
+    } // end Box
 }

@@ -18,6 +18,7 @@ import com.darkwizards.payments.data.model.TransactionStatus
 import com.darkwizards.payments.data.service.PaymentService
 import com.darkwizards.payments.domain.EmvKernel
 import com.darkwizards.payments.util.AmountUtils
+import com.darkwizards.payments.util.NfcLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -229,7 +230,7 @@ class PaymentViewModel(
         pendingExpiry        = "12.2026"
         pendingAmountDollars = amount
         pendingPaymentType   = PaymentType.CARD_PRESENT
-        _uiState.value = PaymentUiState.PinEntry()
+        // Do NOT change state here — TapScreen manages NFC activation itself
     }
 
     // ── NFC methods ───────────────────────────────────────────────────────────
@@ -267,13 +268,15 @@ class PaymentViewModel(
         viewModelScope.launch {
             val isoDep = withContext(ioDispatcher) { isoDepFactory(tag) }
             if (isoDep == null) {
+                NfcLogger.e("PaymentViewModel", "IsoDep.get(tag) returned null — tag tech: ${tag.techList.joinToString()}")
                 _uiState.value = PaymentUiState.NfcError(
-                    message = "Card read error",
+                    message = "Card read error — not an ISO-DEP card",
                     canRetryTap = true,
                     canRetrySubmit = false
                 )
                 return@launch
             }
+            NfcLogger.d("PaymentViewModel", "IsoDep obtained, starting EMV read")
             val result = withContext(ioDispatcher) { EmvKernel.readCard(isoDep) }
             result.fold(
                 onSuccess = { cardData ->

@@ -34,7 +34,8 @@ import com.darkwizards.payments.ui.viewmodel.PaymentViewModel
 fun PaymentScreen(
     viewModel: PaymentViewModel,
     onCardPresent: () -> Unit,
-    onCardNotPresent: () -> Unit
+    onCardNotPresent: () -> Unit,
+    onOpenSettings: () -> Unit = {}   // kept for API compatibility, no longer used in UI
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -55,8 +56,12 @@ fun PaymentScreen(
                 Spacer(modifier = Modifier.height(32.dp))
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(16.dp))
-                Text("Connecting to payment service...", color = MaterialTheme.colorScheme.onBackground)
+                Text(
+                    text = "Connecting to payment service...",
+                    color = MaterialTheme.colorScheme.onBackground
+                )
             }
+
             is PaymentUiState.InitError -> {
                 val error = (uiState as PaymentUiState.InitError).message
                 Text(
@@ -69,48 +74,25 @@ fun PaymentScreen(
                     Text("Retry")
                 }
             }
-            is PaymentUiState.SelectPaymentType -> {
-                Text(
-                    text = "Select Payment Type",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Spacer(modifier = Modifier.height(32.dp))
-                PaymentTypeCard(
-                    title = "Card Present (Tap-to-Pay)",
-                    description = "Simulate a contactless tap payment",
-                    onClick = {
-                        viewModel.selectPaymentType(PaymentType.CARD_PRESENT)
-                        onCardPresent()
-                    }
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                PaymentTypeCard(
-                    title = "Card Not Present (Manual Entry)",
-                    description = "Enter card details manually",
-                    onClick = {
-                        viewModel.selectPaymentType(PaymentType.CARD_NOT_PRESENT)
-                        onCardNotPresent()
-                    }
-                )
-            }
+
             else -> {
-                // For other states, show selection (user navigated back)
                 Text(
                     text = "Select Payment Type",
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Spacer(modifier = Modifier.height(32.dp))
+
                 PaymentTypeCard(
                     title = "Card Present (Tap-to-Pay)",
-                    description = "Simulate a contactless tap payment",
+                    description = "Tap a card or phone to pay",
                     onClick = {
                         viewModel.selectPaymentType(PaymentType.CARD_PRESENT)
                         onCardPresent()
                     }
                 )
                 Spacer(modifier = Modifier.height(16.dp))
+
                 PaymentTypeCard(
                     title = "Card Not Present (Manual Entry)",
                     description = "Enter card details manually",

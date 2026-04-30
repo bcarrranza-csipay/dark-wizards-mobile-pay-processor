@@ -32,7 +32,8 @@ import com.darkwizards.payments.ui.viewmodel.PaymentViewModel
 @Composable
 fun CardNotPresentScreen(
     viewModel: PaymentViewModel,
-    onNavigateToPinEntry: () -> Unit
+    onNavigateToPinEntry: () -> Unit,
+    onNavigateBack: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -165,6 +166,16 @@ fun CardNotPresentScreen(
             )
         ) {
             Text("Submit Payment", color = MaterialTheme.colorScheme.onPrimary)
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(
+            onClick = onNavigateBack,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondary
+            )
+        ) {
+            Text("Cancel")
         }
     }
 }
