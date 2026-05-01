@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.darkwizards.payments.data.model.PaymentUiState
 import com.darkwizards.payments.ui.theme.LocalColorTokens
 import com.darkwizards.payments.ui.viewmodel.PaymentViewModel
+import com.darkwizards.payments.ui.viewmodel.TransactionViewModel
 import com.darkwizards.payments.util.AmountUtils
 import kotlinx.coroutines.delay
 
@@ -61,7 +62,8 @@ import kotlinx.coroutines.delay
 fun ReceiptScreen(
     onNavigateToMerchantPay: () -> Unit,
     onNavigateBack: () -> Unit,
-    paymentViewModel: PaymentViewModel? = null
+    paymentViewModel: PaymentViewModel? = null,
+    transactionViewModel: TransactionViewModel? = null
 ) {
     val tokens = LocalColorTokens.current
     val uiState = paymentViewModel?.uiState?.collectAsState()?.value
@@ -73,6 +75,9 @@ fun ReceiptScreen(
     // After transitioning to success state, wait 2.5 s then navigate to MerchantPay
     LaunchedEffect(sent) {
         if (sent) {
+            // Refresh transactions from server before navigating back
+            // This guarantees the new transaction is in the store
+            transactionViewModel?.loadTransactionsFromServer()
             delay(2500L)
             onNavigateToMerchantPay()
         }

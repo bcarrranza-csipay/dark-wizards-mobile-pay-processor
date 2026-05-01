@@ -16,6 +16,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -120,6 +121,11 @@ fun AppNavigation(
             // ── Merchant screens ──────────────────────────────────────────────
 
             composable(Screen.MerchantPay.route) {
+                // Refresh transactions from server every time we return to MerchantPay
+                // (which happens after every completed payment via Receipt → MerchantPay)
+                LaunchedEffect(Unit) {
+                    transactionViewModel.loadTransactionsFromServer()
+                }
                 MerchantPayScreen(
                     navController = navController
                 )
@@ -271,7 +277,8 @@ fun AppNavigation(
                         }
                     },
                     onNavigateBack = { navController.popBackStack() },
-                    paymentViewModel = paymentViewModel
+                    paymentViewModel = paymentViewModel,
+                    transactionViewModel = transactionViewModel
                 )
             }
 

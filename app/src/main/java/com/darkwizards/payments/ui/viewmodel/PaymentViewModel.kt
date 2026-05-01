@@ -127,11 +127,11 @@ class PaymentViewModel(
                                     val parts = tx.creationTime.split(" ")
                                     val dateParts = parts[0].split("-")
                                     val timeParts = parts[1].split(":")
-                                    LocalDateTime.of(
+                                    java.time.LocalDateTime.of(
                                         dateParts[0].toInt(), dateParts[1].toInt(), dateParts[2].toInt(),
                                         timeParts[0].toInt(), timeParts[1].toInt(), timeParts[2].toInt()
                                     )
-                                } catch (e: Exception) { LocalDateTime.now() }
+                                } catch (e: Exception) { java.time.LocalDateTime.now(java.time.ZoneOffset.UTC) }
                                 transactionStore.addTransaction(
                                     TransactionRecord(
                                         transactionId  = tx.transactionId,
@@ -167,11 +167,11 @@ class PaymentViewModel(
                                         val parts = seeded.creationTime.split(" ")
                                         val dateParts = parts[0].split("-")
                                         val timeParts = parts[1].split(":")
-                                        LocalDateTime.of(
+                                        java.time.LocalDateTime.of(
                                             dateParts[0].toInt(), dateParts[1].toInt(), dateParts[2].toInt(),
                                             timeParts[0].toInt(), timeParts[1].toInt(), timeParts[2].toInt()
                                         )
-                                    } catch (e: Exception) { LocalDateTime.now() }
+                                    } catch (e: Exception) { java.time.LocalDateTime.now(java.time.ZoneOffset.UTC) }
                                     transactionStore.addTransaction(
                                         TransactionRecord(
                                             transactionId  = seeded.transactionId,
@@ -417,6 +417,7 @@ class PaymentViewModel(
     }
 
     fun submitPin(pin: String) {
+        NfcLogger.d("PayVM", "submitPin called, pin length=${pin.length}, uiState=${_uiState.value::class.simpleName}")
         if (pin.length == 4 && pin.all { it.isDigit() }) {
             val currentState = _uiState.value
             if (currentState is PaymentUiState.NfcCvmRequired && currentState.cvm == CvmResult.ONLINE_PIN) {
@@ -476,6 +477,7 @@ class PaymentViewModel(
     }
 
     fun confirmSignature() {
+        NfcLogger.d("PayVM", "confirmSignature called")
         _uiState.value = PaymentUiState.Processing
         viewModelScope.launch {
             paymentService.processSale(
@@ -506,12 +508,16 @@ class PaymentViewModel(
     }
 
     private fun addTransactionRecord(response: SaleResponse) {
+        NfcLogger.d("PayVM", "addTransactionRecord CALLED: txId=${response.transactionId} amount=${response.approvedAmount} type=${pendingPaymentType}")
+        // Use UTC time to match server timestamps — prevents sorting issues
+        // when device timezone differs from server UTC
+        val now = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC)
         val record = TransactionRecord(
                 transactionId  = response.transactionId,
                 amount         = AmountUtils.centsToDisplay(response.approvedAmount),
                 amountCents    = response.approvedAmount.toIntOrNull() ?: 0,
                 feeAmount      = AmountUtils.centsToDisplay(response.feeAmount),
-                dateTime       = LocalDateTime.now(),
+                dateTime       = now,
                 paymentType    = pendingPaymentType,
                 status         = TransactionStatus.APPROVED,
                 approvalNumber = response.approvalNumber,
@@ -519,6 +525,6 @@ class PaymentViewModel(
                 accountType    = response.accountType
         )
         transactionStore.addTransaction(record)
-        android.util.Log.d("PaymentViewModel", "Transaction added: ${record.transactionId} type=${record.paymentType} total=${transactionStore.transactions.value.size}")
+        NfcLogger.d("PayVM", "Store now has ${transactionStore.transactions.value.size} transactions, version=${transactionStore.version.value}")
     }
 }

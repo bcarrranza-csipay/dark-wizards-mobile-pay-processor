@@ -1,7 +1,9 @@
 package com.darkwizards.payments.ui.screen
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,14 +11,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -25,6 +36,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,18 +80,35 @@ fun TransactionReportScreen(
     transactions: List<TransactionRecord> = emptyList(),
     onTransactionClick: (String) -> Unit
 ) {
-    // Use the transactions list passed from AppNavigation (collected at the top level)
-    // This guarantees the list is always fresh — no stale StateFlow subscriptions.
-    val sortedTransactions = sortTransactionsReverseChronological(transactions).take(30)
+    // Read the version counter — this is a simple Int StateFlow that increments
+    // on every store mutation. collectAsState on a primitive Int is reliable
+    // even inside NavHost composable blocks.
+    val storeVersion by viewModel.storeVersion.collectAsState()
+
+    // Read the actual transaction list directly from the store on every recomposition.
+    // No remember, no caching — always fresh.
+    val currentTransactions = viewModel.getTransactionSnapshot()
+    val sortedTransactions = sortTransactionsReverseChronological(currentTransactions)
+
+    // Fetch latest transactions from server on EVERY recomposition triggered by version change.
+    // This is aggressive but guarantees freshness.
+    LaunchedEffect(storeVersion) {
+        // Small delay to let any in-flight server writes complete
+        kotlinx.coroutines.delay(500L)
+        viewModel.loadTransactionsFromServer()
+    }
 
     // Bottom sheet state
     var selectedTransactionId by remember { mutableStateOf<String?>(null) }
     var showSendReceiptContact by remember { mutableStateOf(false) }
     var contactInput by remember { mutableStateOf("") }
 
+    var showDebugLogs by remember { mutableStateOf(false) }
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -90,8 +121,8 @@ fun TransactionReportScreen(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = if (transactions.size > 30)
-                "Showing 30 of ${transactions.size} transactions"
+            text = if (currentTransactions.size > 30)
+                "Showing 30 of ${currentTransactions.size} transactions"
             else
                 "${sortedTransactions.size} transaction${if (sortedTransactions.size != 1) "s" else ""}",
             style = MaterialTheme.typography.bodySmall,
@@ -132,6 +163,80 @@ fun TransactionReportScreen(
 
     // ── Action sheet (ModalBottomSheet) ───────────────────────────────────────
     // Shown when a transaction row is tapped. Offers "View Details" and "Send Receipt".
+
+        // ── Debug bug icon — top-right corner ─────────────────────────────
+        IconButton(
+            onClick = { showDebugLogs = !showDebugLogs },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+                .size(32.dp)
+                .background(Color.Black.copy(alpha = 0.25f), CircleShape)
+        ) {
+            Icon(
+                imageVector = Icons.Default.BugReport,
+                contentDescription = "Debug logs",
+                tint = Color.White.copy(alpha = 0.6f),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        // ── Debug log overlay ──────────────────────────────────────────────
+        if (showDebugLogs) {
+            val newestTx = sortedTransactions.firstOrNull()
+            val directStoreSize = viewModel.getTransactionSnapshot().size
+            val allLogs = com.darkwizards.payments.util.NfcLogger.getLines()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.88f))
+                    .padding(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 48.dp)
+                ) {
+                    Text(
+                        text = "v$storeVersion | total=$directStoreSize | top=${newestTx?.transactionId?.take(8) ?: "none"} | ${newestTx?.dateTime?.toString()?.take(19) ?: ""}",
+                        color = Color.Yellow,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    if (allLogs.isEmpty()) {
+                        Text("No logs yet", color = Color.Gray, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    } else {
+                        allLogs.reversed().forEach { line ->
+                            val color = when {
+                                line.contains("] E/") -> Color(0xFFFF6B6B)
+                                line.contains("] D/") -> Color(0xFFADD8E6)
+                                else -> Color.White
+                            }
+                            Text(text = line, color = color, fontSize = 9.sp, fontFamily = FontFamily.Monospace, lineHeight = 13.sp)
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { com.darkwizards.payments.util.NfcLogger.clear() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
+                        modifier = Modifier.size(width = 80.dp, height = 32.dp)
+                    ) { Text("Clear", fontSize = 10.sp, color = Color.White) }
+                }
+                IconButton(
+                    onClick = { showDebugLogs = false },
+                    modifier = Modifier.align(Alignment.TopEnd)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                }
+            }
+        }
+    } // end Box
 
     if (selectedTransactionId != null) {
         ModalBottomSheet(
@@ -256,22 +361,29 @@ fun TransactionReportScreen(
 }
 
 /**
- * Formats a [LocalDateTime] as a relative date string:
- * - "Today HH:mm AM/PM" if the date is today
- * - "Yesterday HH:mm AM/PM" if the date is yesterday
+ * Formats a [LocalDateTime] (stored in UTC) as a relative date string in the
+ * device's local timezone:
+ * - "Today HH:mm AM/PM" if the local date is today
+ * - "Yesterday HH:mm AM/PM" if the local date is yesterday
  * - "MM/dd/yyyy HH:mm AM/PM" for all older dates
  */
 private fun formatRelativeDate(dateTime: LocalDateTime): String {
+    // Convert UTC stored time → device local timezone for display
+    val localDateTime = dateTime
+        .atZone(java.time.ZoneOffset.UTC)
+        .withZoneSameInstant(java.time.ZoneId.systemDefault())
+        .toLocalDateTime()
+
     val today = LocalDate.now()
     val timeFormatter = DateTimeFormatter.ofPattern("h:mm a")
-    val formattedTime = dateTime.format(timeFormatter)
+    val formattedTime = localDateTime.format(timeFormatter)
 
-    return when (dateTime.toLocalDate()) {
+    return when (localDateTime.toLocalDate()) {
         today -> "Today $formattedTime"
         today.minusDays(1) -> "Yesterday $formattedTime"
         else -> {
             val dateFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy")
-            "${dateTime.format(dateFormatter)} $formattedTime"
+            "${localDateTime.format(dateFormatter)} $formattedTime"
         }
     }
 }

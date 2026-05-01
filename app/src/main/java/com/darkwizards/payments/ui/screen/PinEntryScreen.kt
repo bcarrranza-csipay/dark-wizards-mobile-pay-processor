@@ -40,8 +40,13 @@ fun PinEntryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var pin by remember { mutableStateOf("") }
+    // Guard: only navigate after the user has entered a PIN in THIS session.
+    // Prevents stale Success/SignatureCapture from a previous transaction
+    // from immediately navigating away.
+    var pinSubmitted by remember { mutableStateOf(false) }
 
-    LaunchedEffect(uiState) {
+    LaunchedEffect(uiState, pinSubmitted) {
+        if (!pinSubmitted) return@LaunchedEffect
         when (uiState) {
             is PaymentUiState.SignatureCapture -> onNavigateToSignature()
             is PaymentUiState.Success -> onNavigateToResult()
@@ -106,6 +111,7 @@ fun PinEntryScreen(
                                         if (pin.length < 4) {
                                             pin += key
                                             if (pin.length == 4) {
+                                                pinSubmitted = true
                                                 viewModel.submitPin(pin)
                                             }
                                         }

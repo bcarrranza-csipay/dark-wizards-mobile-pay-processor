@@ -281,10 +281,13 @@ fun ManualEntryScreen(
 
     // Whether the user has attempted to submit (enables blur-time validation)
     var submitAttempted by remember { mutableStateOf(false) }
+    // Guard: only navigate after the user has submitted the form in THIS session
+    var formSubmitted by remember { mutableStateOf(false) }
 
     // ── Navigation ────────────────────────────────────────────────────────────
 
-    LaunchedEffect(uiState) {
+    LaunchedEffect(uiState, formSubmitted) {
+        if (!formSubmitted) return@LaunchedEffect
         when (uiState) {
             is PaymentUiState.PinEntry -> onNavigateToPinEntry()
             is PaymentUiState.SignatureCapture -> onNavigateToSignature()
@@ -650,6 +653,7 @@ fun ManualEntryScreen(
                 submitAttempted = true
                 val isValid = validateAndUpdateErrors()
                 if (isValid) {
+                    formSubmitted = true
                     val formattedExpiry = convertExpiryToMmYyyy(expiryRaw)
                     paymentViewModel.submitCardNotPresent(
                         cardNumber = cardNumber,
