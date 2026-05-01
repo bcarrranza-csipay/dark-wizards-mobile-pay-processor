@@ -64,6 +64,9 @@ class PaymentViewModel(
     private var pendingExpiry: String = ""
     private var pendingAmountDollars: String = ""
     private var pendingPaymentType: PaymentType = PaymentType.CARD_NOT_PRESENT
+    // Card issuer selected by customer (e.g. "Debit", "Visa", "Mastercard")
+    // Used to determine CVM for Card Not Present flow
+    private var pendingCardIssuer: String = ""
 
     /** Exposed for TapScreen to display the merchant-entered amount while waiting for a tap. */
     internal val currentAmountDollars: String get() = pendingAmountDollars
@@ -221,7 +224,14 @@ class PaymentViewModel(
         pendingExpiry        = expiry
         pendingAmountDollars = amount
         pendingPaymentType   = PaymentType.CARD_NOT_PRESENT
+
+        // Card Not Present: always PIN only, no signature
         _uiState.value = PaymentUiState.PinEntry()
+    }
+
+    /** Sets the card issuer selected by the customer (e.g. "Debit", "Visa", "Mastercard"). */
+    fun setCardIssuer(issuer: String) {
+        pendingCardIssuer = issuer
     }
 
     fun submitCardPresent(amount: String) {
@@ -438,7 +448,29 @@ class PaymentViewModel(
                     )
                 }
             } else {
-                _uiState.value = PaymentUiState.SignatureCapture
+                // Card Not Present path — Debit PIN accepted, submit sale directly (no signature)
+                _uiState.value = PaymentUiState.Processing
+                viewModelScope.launch {
+                    paymentService.processSale(
+                        accountNumber      = pendingAccountNumber,
+                        accountType        = pendingAccountType,
+                        expiry             = pendingExpiry,
+                        totalAmountDollars = pendingAmountDollars
+                    ).fold(
+                        onSuccess = { saleResponse ->
+                            addTransactionRecord(saleResponse)
+                            _uiState.value = PaymentUiState.Success(
+                                result      = saleResponse,
+                                paymentType = pendingPaymentType
+                            )
+                        },
+                        onFailure = { e ->
+                            _uiState.value = PaymentUiState.Error(
+                                message = e.message ?: "Payment failed"
+                            )
+                        }
+                    )
+                }
             }
         }
     }
@@ -474,8 +506,7 @@ class PaymentViewModel(
     }
 
     private fun addTransactionRecord(response: SaleResponse) {
-        transactionStore.addTransaction(
-            TransactionRecord(
+        val record = TransactionRecord(
                 transactionId  = response.transactionId,
                 amount         = AmountUtils.centsToDisplay(response.approvedAmount),
                 amountCents    = response.approvedAmount.toIntOrNull() ?: 0,
@@ -486,7 +517,8 @@ class PaymentViewModel(
                 approvalNumber = response.approvalNumber,
                 accountLast4   = response.accountLast4,
                 accountType    = response.accountType
-            )
         )
+        transactionStore.addTransaction(record)
+        android.util.Log.d("PaymentViewModel", "Transaction added: ${record.transactionId} type=${record.paymentType} total=${transactionStore.transactions.value.size}")
     }
 }

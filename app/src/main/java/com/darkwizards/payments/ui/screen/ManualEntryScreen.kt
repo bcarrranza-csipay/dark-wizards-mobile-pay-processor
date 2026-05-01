@@ -120,7 +120,11 @@ fun validateManualEntryForm(
     expiry: String,
     cvv: String,
     zip: String,
-    avsEnabled: Boolean
+    avsEnabled: Boolean,
+    cardholderName: String = "",
+    streetAddress: String = "",
+    city: String = "",
+    state: String = ""
 ): Map<String, String> {
     val errors = mutableMapOf<String, String>()
 
@@ -128,8 +132,6 @@ fun validateManualEntryForm(
         errors["cardNumber"] = "Card number is required"
     }
 
-    // Expiry validation: raw digits must be exactly 4 digits (MMYY)
-    // and the displayed form must match MM/YY pattern
     val expiryError = validateExpiry(expiry)
     if (expiryError != null) {
         errors["expiry"] = expiryError
@@ -140,6 +142,18 @@ fun validateManualEntryForm(
     }
 
     if (avsEnabled) {
+        if (cardholderName.isBlank()) {
+            errors["cardholderName"] = "Cardholder name is required"
+        }
+        if (streetAddress.isBlank()) {
+            errors["streetAddress"] = "Street address is required"
+        }
+        if (city.isBlank()) {
+            errors["city"] = "City is required"
+        }
+        if (state.isBlank()) {
+            errors["state"] = "State is required"
+        }
         if (!isValidZip(zip)) {
             errors["zip"] = "Invalid ZIP"
         }
@@ -230,6 +244,7 @@ fun ManualEntryScreen(
     settingsViewModel: SettingsViewModel,
     paymentViewModel: PaymentViewModel,
     onNavigateToPinEntry: () -> Unit,
+    onNavigateToSignature: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val tokens = LocalColorTokens.current
@@ -258,6 +273,10 @@ fun ManualEntryScreen(
     var cardNumberError by remember { mutableStateOf<String?>(null) }
     var expiryError by remember { mutableStateOf<String?>(null) }
     var cvvError by remember { mutableStateOf<String?>(null) }
+    var cardholderNameError by remember { mutableStateOf<String?>(null) }
+    var streetAddressError by remember { mutableStateOf<String?>(null) }
+    var cityError by remember { mutableStateOf<String?>(null) }
+    var stateError by remember { mutableStateOf<String?>(null) }
     var zipError by remember { mutableStateOf<String?>(null) }
 
     // Whether the user has attempted to submit (enables blur-time validation)
@@ -266,8 +285,10 @@ fun ManualEntryScreen(
     // ── Navigation ────────────────────────────────────────────────────────────
 
     LaunchedEffect(uiState) {
-        if (uiState is PaymentUiState.PinEntry) {
-            onNavigateToPinEntry()
+        when (uiState) {
+            is PaymentUiState.PinEntry -> onNavigateToPinEntry()
+            is PaymentUiState.SignatureCapture -> onNavigateToSignature()
+            else -> { /* no navigation */ }
         }
     }
 
@@ -314,10 +335,24 @@ fun ManualEntryScreen(
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     fun validateAndUpdateErrors(): Boolean {
-        val errors = validateManualEntryForm(cardNumber, expiryRaw, cvv, zip, avsEnabled)
+        val errors = validateManualEntryForm(
+            cardNumber = cardNumber,
+            expiry = expiryRaw,
+            cvv = cvv,
+            zip = zip,
+            avsEnabled = avsEnabled,
+            cardholderName = cardholderName,
+            streetAddress = streetAddress,
+            city = city,
+            state = state
+        )
         cardNumberError = errors["cardNumber"]
         expiryError = errors["expiry"]
         cvvError = errors["cvv"]
+        cardholderNameError = errors["cardholderName"]
+        streetAddressError = errors["streetAddress"]
+        cityError = errors["city"]
+        stateError = errors["state"]
         zipError = errors["zip"]
         return errors.isEmpty()
     }
@@ -488,9 +523,21 @@ fun ManualEntryScreen(
             // Cardholder Name
             OutlinedTextField(
                 value = cardholderName,
-                onValueChange = { cardholderName = it },
+                onValueChange = {
+                    cardholderName = it
+                    if (it.isNotBlank()) cardholderNameError = null
+                    else if (submitAttempted) cardholderNameError = "Cardholder name is required"
+                },
                 label = { Text("Cardholder Name") },
-                modifier = Modifier.fillMaxWidth(),
+                isError = cardholderNameError != null,
+                supportingText = cardholderNameError?.let { err -> { Text(err) } },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused && submitAttempted) {
+                            cardholderNameError = if (cardholderName.isBlank()) "Cardholder name is required" else null
+                        }
+                    },
                 colors = textFieldColors,
                 singleLine = true
             )
@@ -500,9 +547,21 @@ fun ManualEntryScreen(
             // Street Address
             OutlinedTextField(
                 value = streetAddress,
-                onValueChange = { streetAddress = it },
+                onValueChange = {
+                    streetAddress = it
+                    if (it.isNotBlank()) streetAddressError = null
+                    else if (submitAttempted) streetAddressError = "Street address is required"
+                },
                 label = { Text("Street Address") },
-                modifier = Modifier.fillMaxWidth(),
+                isError = streetAddressError != null,
+                supportingText = streetAddressError?.let { err -> { Text(err) } },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused && submitAttempted) {
+                            streetAddressError = if (streetAddress.isBlank()) "Street address is required" else null
+                        }
+                    },
                 colors = textFieldColors,
                 singleLine = true
             )
@@ -512,9 +571,21 @@ fun ManualEntryScreen(
             // City
             OutlinedTextField(
                 value = city,
-                onValueChange = { city = it },
+                onValueChange = {
+                    city = it
+                    if (it.isNotBlank()) cityError = null
+                    else if (submitAttempted) cityError = "City is required"
+                },
                 label = { Text("City") },
-                modifier = Modifier.fillMaxWidth(),
+                isError = cityError != null,
+                supportingText = cityError?.let { err -> { Text(err) } },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused && submitAttempted) {
+                            cityError = if (city.isBlank()) "City is required" else null
+                        }
+                    },
                 colors = textFieldColors,
                 singleLine = true
             )
@@ -524,9 +595,21 @@ fun ManualEntryScreen(
             // State
             OutlinedTextField(
                 value = state,
-                onValueChange = { state = it },
+                onValueChange = {
+                    state = it
+                    if (it.isNotBlank()) stateError = null
+                    else if (submitAttempted) stateError = "State is required"
+                },
                 label = { Text("State") },
-                modifier = Modifier.fillMaxWidth(),
+                isError = stateError != null,
+                supportingText = stateError?.let { err -> { Text(err) } },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused && submitAttempted) {
+                            stateError = if (state.isBlank()) "State is required" else null
+                        }
+                    },
                 colors = textFieldColors,
                 singleLine = true
             )

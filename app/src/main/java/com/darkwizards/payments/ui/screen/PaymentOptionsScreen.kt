@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.darkwizards.payments.ui.navigation.Screen
 import com.darkwizards.payments.ui.theme.LocalColorTokens
+import com.darkwizards.payments.ui.viewmodel.SettingsState
 import com.darkwizards.payments.ui.viewmodel.SettingsViewModel
 import kotlin.math.floor
 
@@ -69,13 +70,6 @@ fun PaymentOptionsScreen(
     val tokens = LocalColorTokens.current
     val settingsState by settingsViewModel.state.collectAsState()
 
-    // Parse surcharge percentages from settings (default to 0.0 if blank/invalid)
-    val creditSurchargePercent = settingsState.creditSurchargePercent.toDoubleOrNull() ?: 0.0
-    val debitSurchargePercent  = settingsState.debitSurchargePercent.toDoubleOrNull()  ?: 0.0
-
-    // Pre-calculate credit surcharge for the disclaimer preview
-    val creditSurchargeCents = calculateSurchargeCents(baseAmountCents, creditSurchargePercent)
-
     // Format the base amount as "$X.XX"
     val formattedBase = formatCentsAsDisplay(baseAmountCents)
 
@@ -100,30 +94,29 @@ fun PaymentOptionsScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Select payment type",
+            text = "Select your card type",
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
-        // ── Debit button (Button2Color) ───────────────────────────────────────
+        // ── Debit button (no surcharge) ───────────────────────────────────────
 
         Button(
             onClick = {
-                val surchargeCents = calculateSurchargeCents(baseAmountCents, debitSurchargePercent)
                 navController.navigate(
                     Screen.TotalAmount.createRoute(
                         baseAmountCents = baseAmountCents,
-                        cardType        = "debit",
-                        surchargeCents  = surchargeCents
+                        cardType        = "Debit",
+                        surchargeCents  = 0
                     )
                 )
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp),
+                .height(56.dp),
             shape = RoundedCornerShape(50),
             colors = ButtonDefaults.buttonColors(
                 containerColor = tokens.button2Color,
@@ -132,56 +125,74 @@ fun PaymentOptionsScreen(
         ) {
             Text(
                 text = "Debit",
-                fontSize = 20.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // ── Credit button (Button1Color) ──────────────────────────────────────
+        Text(
+            text = "Credit",
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.White.copy(alpha = 0.6f),
+            modifier = Modifier.fillMaxWidth()
+        )
 
-        Button(
-            onClick = {
-                val surchargeCents = calculateSurchargeCents(baseAmountCents, creditSurchargePercent)
-                navController.navigate(
-                    Screen.TotalAmount.createRoute(
-                        baseAmountCents = baseAmountCents,
-                        cardType        = "credit",
-                        surchargeCents  = surchargeCents
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // ── Credit card issuer buttons with surcharges ────────────────────────
+
+        val hasSurcharge = SettingsState.SUPPORTED_ISSUERS.any { issuer ->
+            (settingsState.issuerSurcharges[issuer]?.toDoubleOrNull() ?: 0.0) > 0.0
+        }
+
+        SettingsState.SUPPORTED_ISSUERS.forEachIndexed { index, issuer ->
+            val surchargePercent = settingsState.issuerSurcharges[issuer]?.toDoubleOrNull() ?: 0.0
+            val surchargeCents   = calculateSurchargeCents(baseAmountCents, surchargePercent)
+
+            Button(
+                onClick = {
+                    navController.navigate(
+                        Screen.TotalAmount.createRoute(
+                            baseAmountCents = baseAmountCents,
+                            cardType        = issuer,
+                            surchargeCents  = surchargeCents
+                        )
                     )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = tokens.button1Color,
+                    contentColor   = Color.White
                 )
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp),
-            shape = RoundedCornerShape(50),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = tokens.button1Color,
-                contentColor   = Color.White
-            )
-        ) {
-            Text(
-                text = "Credit",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            ) {
+                val surchargeLabel = if (surchargePercent > 0.0) {
+                    "  (+${formatPercentDisplay(surchargePercent)})"
+                } else ""
+                Text(
+                    text = "$issuer$surchargeLabel",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            if (index < SettingsState.SUPPORTED_ISSUERS.lastIndex) {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
         }
 
-        // ── Credit surcharge disclaimer ───────────────────────────────────────
-        // Shown when a credit surcharge is configured (> 0%), as a preview
-        // before the customer taps the Credit button (Requirement 10.3).
+        // ── Surcharge disclaimer ──────────────────────────────────────────────
 
-        if (creditSurchargePercent > 0.0) {
-            Spacer(modifier = Modifier.height(20.dp))
-
-            val surchargeDisplay = formatCentsAsDisplay(creditSurchargeCents)
-            val percentDisplay   = formatPercentDisplay(creditSurchargePercent)
-
+        if (hasSurcharge) {
+            Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "$percentDisplay surcharge applies (+$surchargeDisplay)",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.Yellow.copy(alpha = 0.9f),
+                text = "Percentages shown are surcharges applied to credit card transactions. Debit cards are not subject to surcharges.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.5f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )

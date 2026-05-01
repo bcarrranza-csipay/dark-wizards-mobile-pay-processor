@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,7 +34,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.darkwizards.payments.data.model.PaymentUiState
 import com.darkwizards.payments.ui.theme.LocalColorTokens
+import com.darkwizards.payments.ui.viewmodel.PaymentViewModel
+import com.darkwizards.payments.util.AmountUtils
 import kotlinx.coroutines.delay
 
 /**
@@ -56,9 +60,11 @@ import kotlinx.coroutines.delay
 @Composable
 fun ReceiptScreen(
     onNavigateToMerchantPay: () -> Unit,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    paymentViewModel: PaymentViewModel? = null
 ) {
     val tokens = LocalColorTokens.current
+    val uiState = paymentViewModel?.uiState?.collectAsState()?.value
 
     var email by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
@@ -81,20 +87,6 @@ fun ReceiptScreen(
     ) {
         if (!sent) {
             // ── Initial state ─────────────────────────────────────────────────
-
-            // Back arrow
-            Box(modifier = Modifier.fillMaxWidth()) {
-                IconButton(
-                    onClick = onNavigateBack,
-                    modifier = Modifier.align(Alignment.CenterStart)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White
-                    )
-                }
-            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -198,7 +190,9 @@ fun ReceiptScreen(
             }
 
         } else {
-            // ── Success state ─────────────────────────────────────────────────
+            // ── Success state — show transaction details ──────────────────────
+
+            val saleResult = (uiState as? PaymentUiState.Success)?.result
 
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -209,7 +203,7 @@ fun ReceiptScreen(
                     text = "✓",
                     fontSize = 72.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = Color(0xFF4CAF50)
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -222,12 +216,68 @@ fun ReceiptScreen(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                if (saleResult != null) {
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Amount
+                    Text(
+                        text = AmountUtils.centsToDisplay(saleResult.approvedAmount),
+                        fontSize = 40.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Card info
+                    Text(
+                        text = "${saleResult.accountType} •••• ${saleResult.accountLast4}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Approval number
+                    Text(
+                        text = "Approval #${saleResult.approvalNumber}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center
+                    )
+
+                    // Fee
+                    val feeCents = saleResult.feeAmount.toIntOrNull() ?: 0
+                    if (feeCents > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Fee: ${AmountUtils.centsToDisplay(saleResult.feeAmount)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.5f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Transaction ID (truncated for readability)
+                    val shortId = saleResult.transactionId.take(8) + "..."
+                    Text(
+                        text = "ID: $shortId",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.4f),
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Text(
                     text = "Returning to merchant...",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.5f),
                     textAlign = TextAlign.Center
                 )
             }

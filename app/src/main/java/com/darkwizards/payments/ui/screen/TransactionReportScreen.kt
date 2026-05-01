@@ -25,7 +25,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,12 +32,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import android.util.Log
 import com.darkwizards.payments.data.model.PaymentType
 import com.darkwizards.payments.data.model.TransactionRecord
 import com.darkwizards.payments.data.model.TransactionStatus
 import com.darkwizards.payments.ui.viewmodel.TransactionViewModel
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 /**
@@ -58,10 +63,12 @@ fun sortTransactionsReverseChronological(transactions: List<TransactionRecord>):
 @Composable
 fun TransactionReportScreen(
     viewModel: TransactionViewModel,
+    transactions: List<TransactionRecord> = emptyList(),
     onTransactionClick: (String) -> Unit
 ) {
-    val transactions by viewModel.transactions.collectAsState()
-    val sortedTransactions = sortTransactionsReverseChronological(transactions)
+    // Use the transactions list passed from AppNavigation (collected at the top level)
+    // This guarantees the list is always fresh — no stale StateFlow subscriptions.
+    val sortedTransactions = sortTransactionsReverseChronological(transactions).take(30)
 
     // Bottom sheet state
     var selectedTransactionId by remember { mutableStateOf<String?>(null) }
@@ -81,7 +88,16 @@ fun TransactionReportScreen(
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = if (transactions.size > 30)
+                "Showing 30 of ${transactions.size} transactions"
+            else
+                "${sortedTransactions.size} transaction${if (sortedTransactions.size != 1) "s" else ""}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
         if (sortedTransactions.isEmpty()) {
             Column(
@@ -239,22 +255,44 @@ fun TransactionReportScreen(
     }
 }
 
+/**
+ * Formats a [LocalDateTime] as a relative date string:
+ * - "Today HH:mm AM/PM" if the date is today
+ * - "Yesterday HH:mm AM/PM" if the date is yesterday
+ * - "MM/dd/yyyy HH:mm AM/PM" for all older dates
+ */
+private fun formatRelativeDate(dateTime: LocalDateTime): String {
+    val today = LocalDate.now()
+    val timeFormatter = DateTimeFormatter.ofPattern("h:mm a")
+    val formattedTime = dateTime.format(timeFormatter)
+
+    return when (dateTime.toLocalDate()) {
+        today -> "Today $formattedTime"
+        today.minusDays(1) -> "Yesterday $formattedTime"
+        else -> {
+            val dateFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy")
+            "${dateTime.format(dateFormatter)} $formattedTime"
+        }
+    }
+}
+
 @Composable
 private fun TransactionRow(
     transaction: TransactionRecord,
     onClick: () -> Unit
 ) {
-    val formatter = DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm")
     val statusColor = when (transaction.status) {
-        TransactionStatus.APPROVED -> MaterialTheme.colorScheme.primary
-        TransactionStatus.DECLINED -> MaterialTheme.colorScheme.error
-        TransactionStatus.VOIDED -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        TransactionStatus.REFUNDED -> MaterialTheme.colorScheme.tertiary
+        TransactionStatus.APPROVED -> Color(0xFF4CAF50)
+        TransactionStatus.DECLINED -> Color(0xFFF44336)
+        TransactionStatus.VOIDED -> Color(0xFF9E9E9E)
+        TransactionStatus.REFUNDED -> Color(0xFFFF9800)
     }
     val paymentTypeLabel = when (transaction.paymentType) {
         PaymentType.CARD_PRESENT -> "Card Present"
         PaymentType.CARD_NOT_PRESENT -> "Card Not Present"
     }
+    val cardInfo = "${transaction.accountType} •••• ${transaction.accountLast4}"
+    val dateLabel = "${formatRelativeDate(transaction.dateTime)} · $paymentTypeLabel"
 
     Card(
         modifier = Modifier
@@ -266,42 +304,38 @@ private fun TransactionRow(
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Row 1: Amount (left) + Status badge (right)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = transaction.transactionId,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 Text(
                     text = transaction.amount,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    text = transaction.status.name,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = statusColor
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = transaction.dateTime.format(formatter),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-                Text(
-                    text = paymentTypeLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
+            // Row 2: Card info
             Text(
-                text = transaction.status.name,
-                style = MaterialTheme.typography.labelMedium,
-                color = statusColor
+                text = cardInfo,
+                fontSize = 14.sp,
+                color = Color.White.copy(alpha = 0.7f)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            // Row 3: Relative date + payment type
+            Text(
+                text = dateLabel,
+                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.5f)
             )
         }
     }

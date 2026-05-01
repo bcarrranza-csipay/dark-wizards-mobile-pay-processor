@@ -39,6 +39,7 @@ import com.darkwizards.payments.ui.theme.ColorTokenRepository
 import com.darkwizards.payments.ui.theme.LocalColorTokens
 import com.darkwizards.payments.ui.viewmodel.PaymentMode
 import com.darkwizards.payments.ui.viewmodel.SettingsViewModel
+import com.darkwizards.payments.ui.viewmodel.SettingsState
 
 // ── Token display names ───────────────────────────────────────────────────────
 
@@ -94,39 +95,26 @@ fun SettingsScreen(
 
         // ── Section 1: Surcharges ─────────────────────────────────────────────
 
-        SectionHeader(title = "Surcharges")
+        SectionHeader(title = "Surcharges by Issuer")
 
-        OutlinedTextField(
-            value         = state.creditSurchargePercent,
-            onValueChange = { value ->
-                settingsViewModel.updateSurcharge("credit", value)
-            },
-            label         = { Text("Credit Surcharge (%)") },
-            singleLine    = true,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Decimal,
-                imeAction    = ImeAction.Next
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp)
-        )
-
-        OutlinedTextField(
-            value         = state.debitSurchargePercent,
-            onValueChange = { value ->
-                settingsViewModel.updateSurcharge("debit", value)
-            },
-            label         = { Text("Debit Surcharge (%)") },
-            singleLine    = true,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Decimal,
-                imeAction    = ImeAction.Done
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp)
-        )
+        SettingsState.SUPPORTED_ISSUERS.forEachIndexed { index, issuer ->
+            OutlinedTextField(
+                value         = state.issuerSurcharges[issuer] ?: "",
+                onValueChange = { value ->
+                    settingsViewModel.updateSurcharge(issuer, value)
+                },
+                label         = { Text("$issuer Surcharge (%)") },
+                singleLine    = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Decimal,
+                    imeAction    = if (index < SettingsState.SUPPORTED_ISSUERS.lastIndex)
+                        ImeAction.Next else ImeAction.Done
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            )
+        }
 
         SectionDivider()
 

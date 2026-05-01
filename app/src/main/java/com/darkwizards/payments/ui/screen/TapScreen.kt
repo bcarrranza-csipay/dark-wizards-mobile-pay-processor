@@ -78,6 +78,33 @@ fun TapScreen(
     // Debug log overlay state
     var showLogs by remember { mutableStateOf(false) }
 
+    // Guard: prevents stale Success state from a previous transaction
+    // from immediately navigating to receipt before NFC flow starts.
+    var nfcFlowActive by remember { mutableStateOf(false) }
+
+    // Amount is already registered by PaymentTypeScreen via submitCardPresent().
+    // Start NFC availability check immediately on screen entry.
+    LaunchedEffect(Unit) {
+        viewModel.checkNfcAvailability(context)
+    }
+
+    // Activate the navigation guard only once we're in an NFC-specific state
+    // (not a stale Success/Error from a previous transaction)
+    LaunchedEffect(uiState) {
+        when (uiState) {
+            is PaymentUiState.NfcWaiting,
+            is PaymentUiState.NfcReading,
+            is PaymentUiState.NfcSubmitting,
+            is PaymentUiState.NfcHardwareUnavailable,
+            is PaymentUiState.NfcTimeout,
+            is PaymentUiState.NfcError,
+            is PaymentUiState.NfcCvmRequired -> {
+                nfcFlowActive = true
+            }
+            else -> { /* don't activate yet — might be stale state */ }
+        }
+    }
+
     // Enable NFC reader mode on entry, disable on exit
     DisposableEffect(Unit) {
         val callback = NfcAdapter.ReaderCallback { tag: Tag ->
@@ -98,8 +125,9 @@ fun TapScreen(
         }
     }
 
-    // Navigation side-effects driven by uiState
-    LaunchedEffect(uiState) {
+    // Navigation side-effects — only fires after NFC flow is active
+    LaunchedEffect(uiState, nfcFlowActive) {
+        if (!nfcFlowActive) return@LaunchedEffect
         when (val state = uiState) {
             is PaymentUiState.NfcCvmRequired -> {
                 when (state.cvm) {
@@ -346,7 +374,9 @@ fun TapScreen(
                 }
             }
 
-            // ── All other states ──────────────────────────────────────────────
+            // ── All other states (CardPresentEntry, Loading, etc.) ────────────
+            // Show a brief spinner — checkNfcAvailability() called on entry
+            // will transition to NfcWaiting almost immediately.
             else -> {
                 CircularProgressIndicator(
                     color = colorTokens.spinnerColor,

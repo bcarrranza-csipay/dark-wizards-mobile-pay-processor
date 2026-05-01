@@ -14,8 +14,8 @@ import kotlinx.coroutines.flow.update
 /**
  * Immutable snapshot of all settings managed by [SettingsViewModel].
  *
- * @param creditSurchargePercent  Surcharge percentage string for Credit card type (e.g. "3.0")
- * @param debitSurchargePercent   Surcharge percentage string for Debit card type (e.g. "0")
+ * @param issuerSurcharges        Map of issuer name → surcharge percentage string
+ *                                Keys: "Visa", "Mastercard", "Discover", "Amex"
  * @param tipEnabled              Whether tip selection is shown on the Total Amount screen
  * @param tipPresets              Up to three preset tip percentage strings (e.g. ["15", "18", "20"])
  * @param avsEnabled              Whether AVS billing address fields are shown on Manual Entry screen
@@ -25,8 +25,7 @@ import kotlinx.coroutines.flow.update
  * @param selectedMode            Currently active [PaymentMode]
  */
 data class SettingsState(
-    val creditSurchargePercent: String          = "",
-    val debitSurchargePercent: String           = "",
+    val issuerSurcharges: Map<String, String>   = SUPPORTED_ISSUERS.associateWith { "" },
     val tipEnabled: Boolean                     = false,
     val tipPresets: List<String>                = emptyList(),
     val avsEnabled: Boolean                     = false,
@@ -34,7 +33,15 @@ data class SettingsState(
     val hexInputs: Map<String, String>          = emptyMap(),
     val hexErrors: Map<String, String?>         = emptyMap(),
     val selectedMode: PaymentMode               = PaymentMode.SIMULATOR
-)
+) {
+    companion object {
+        /** Card issuers that support per-issuer surcharge configuration. */
+        val SUPPORTED_ISSUERS = listOf("Visa", "Mastercard", "Discover", "Amex")
+    }
+}
+
+// Convenience alias
+private val SUPPORTED_ISSUERS = SettingsState.SUPPORTED_ISSUERS
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
 
@@ -64,8 +71,7 @@ class SettingsViewModel(
     // ── SharedPreferences keys ────────────────────────────────────────────────
 
     companion object {
-        private const val KEY_CREDIT_SURCHARGE  = "credit_surcharge_percent"
-        private const val KEY_DEBIT_SURCHARGE   = "debit_surcharge_percent"
+        private const val KEY_SURCHARGE_PREFIX  = "surcharge_"   // + issuer name, e.g. "surcharge_Visa"
         private const val KEY_TIP_ENABLED       = "tip_enabled"
         private const val KEY_TIP_PRESET_0      = "tip_preset_0"
         private const val KEY_TIP_PRESET_1      = "tip_preset_1"
@@ -100,9 +106,11 @@ class SettingsViewModel(
             settingsPrefs.getString(KEY_TIP_PRESET_1, "") ?: "",
             settingsPrefs.getString(KEY_TIP_PRESET_2, "") ?: ""
         )
+        val issuerSurcharges = SUPPORTED_ISSUERS.associateWith { issuer ->
+            settingsPrefs.getString("$KEY_SURCHARGE_PREFIX$issuer", "") ?: ""
+        }
         return SettingsState(
-            creditSurchargePercent = settingsPrefs.getString(KEY_CREDIT_SURCHARGE, "") ?: "",
-            debitSurchargePercent  = settingsPrefs.getString(KEY_DEBIT_SURCHARGE, "") ?: "",
+            issuerSurcharges       = issuerSurcharges,
             tipEnabled             = settingsPrefs.getBoolean(KEY_TIP_ENABLED, false),
             tipPresets             = tipPresets,
             avsEnabled             = settingsPrefs.getBoolean(KEY_AVS_ENABLED, false),
@@ -131,27 +139,25 @@ class SettingsViewModel(
     // ── Surcharge ─────────────────────────────────────────────────────────────
 
     /**
-     * Updates the surcharge percentage for [cardType] ("credit" or "debit").
+     * Updates the surcharge percentage for [issuer] (e.g. "Visa", "Mastercard", "Discover", "Amex").
      *
      * Only digits and at most one decimal point are accepted; any other character is
      * silently stripped before the value is stored (Requirement 5.3).
      */
-    fun updateSurcharge(cardType: String, value: String) {
+    fun updateSurcharge(issuer: String, value: String) {
         val filtered = filterNumericInput(value)
-        val prefKey = if (cardType.equals("credit", ignoreCase = true)) {
-            KEY_CREDIT_SURCHARGE
-        } else {
-            KEY_DEBIT_SURCHARGE
-        }
-        settingsPrefs.edit().putString(prefKey, filtered).apply()
+        settingsPrefs.edit().putString("$KEY_SURCHARGE_PREFIX$issuer", filtered).apply()
         _state.update { current ->
-            if (cardType.equals("credit", ignoreCase = true)) {
-                current.copy(creditSurchargePercent = filtered)
-            } else {
-                current.copy(debitSurchargePercent = filtered)
-            }
+            current.copy(issuerSurcharges = current.issuerSurcharges + (issuer to filtered))
         }
     }
+
+    /**
+     * Returns the surcharge percentage for [issuer], or 0.0 if not configured.
+     * Convenience helper used by PaymentOptionsScreen.
+     */
+    fun getSurchargePercent(issuer: String): Double =
+        _state.value.issuerSurcharges[issuer]?.toDoubleOrNull() ?: 0.0
 
     // ── Tip ───────────────────────────────────────────────────────────────────
 

@@ -66,19 +66,6 @@ fun SignatureCaptureScreen(
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Back arrow row
-        Box(modifier = Modifier.fillMaxWidth()) {
-            IconButton(
-                onClick = onNavigateBack,
-                modifier = Modifier.align(Alignment.CenterStart)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onBackground
-                )
-            }
-        }
         Text(
             text = "Signature Capture",
             style = MaterialTheme.typography.headlineMedium,

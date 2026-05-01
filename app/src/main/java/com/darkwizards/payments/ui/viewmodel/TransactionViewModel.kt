@@ -24,7 +24,16 @@ class TransactionViewModel(
     private val transactionStore: TransactionStore
 ) : ViewModel() {
 
+    // Expose the store's StateFlow directly — no intermediate copy.
+    // This guarantees the UI always sees the latest data without any
+    // collector synchronization issues.
     val transactions: StateFlow<List<TransactionRecord>> = transactionStore.transactions
+
+    /**
+     * No-op kept for API compatibility with TransactionReportScreen's
+     * LaunchedEffect call. The direct StateFlow exposure makes this unnecessary.
+     */
+    fun refreshTransactions() { /* no-op — direct StateFlow exposure handles this */ }
 
     private val _selectedTransaction = MutableStateFlow<TransactionRecord?>(null)
     val selectedTransaction: StateFlow<TransactionRecord?> = _selectedTransaction.asStateFlow()

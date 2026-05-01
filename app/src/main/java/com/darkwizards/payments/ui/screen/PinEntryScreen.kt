@@ -35,14 +35,17 @@ import com.darkwizards.payments.ui.viewmodel.PaymentViewModel
 @Composable
 fun PinEntryScreen(
     viewModel: PaymentViewModel,
-    onNavigateToSignature: () -> Unit
+    onNavigateToSignature: () -> Unit,
+    onNavigateToResult: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var pin by remember { mutableStateOf("") }
 
     LaunchedEffect(uiState) {
-        if (uiState is PaymentUiState.SignatureCapture) {
-            onNavigateToSignature()
+        when (uiState) {
+            is PaymentUiState.SignatureCapture -> onNavigateToSignature()
+            is PaymentUiState.Success -> onNavigateToResult()
+            else -> { /* no navigation */ }
         }
     }
 

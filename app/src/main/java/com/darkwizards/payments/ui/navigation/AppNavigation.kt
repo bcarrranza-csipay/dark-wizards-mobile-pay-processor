@@ -16,6 +16,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,6 +95,11 @@ fun AppNavigation(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
+    // Collect transactions at the AppNavigation level — this ensures the
+    // StateFlow is always actively collected regardless of which screen is visible.
+    // Pass the list down to TransactionReportScreen as a parameter.
+    val allTransactions by transactionViewModel.transactions.collectAsState()
+
     // Hide the Home Bar on all customer screens
     val showBottomBar = currentDestination?.route !in customerRoutes
 
@@ -128,6 +134,7 @@ fun AppNavigation(
             composable(Screen.TransactionReport.route) {
                 TransactionReportScreen(
                     viewModel          = transactionViewModel,
+                    transactions       = allTransactions,
                     onTransactionClick = { transactionId ->
                         navController.navigate(Screen.TransactionDetail.createRoute(transactionId))
                     }
@@ -195,6 +202,8 @@ fun AppNavigation(
                 val surchargeCents   = backStackEntry.arguments?.getInt("surchargeCents") ?: 0
                 val tipCents         = backStackEntry.arguments?.getInt("tipCents") ?: 0
                 val totalAmountCents = baseAmountCents + surchargeCents + tipCents
+                // Store the card issuer so CVM routing works correctly
+                paymentViewModel.setCardIssuer(cardType)
                 PaymentTypeScreen(
                     totalAmountCents    = totalAmountCents,
                     onCardPresent       = {
@@ -233,6 +242,7 @@ fun AppNavigation(
                     settingsViewModel = settingsViewModel,
                     paymentViewModel  = paymentViewModel,
                     onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) },
+                    onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) },
                     onNavigateBack    = { navController.popBackStack() }
                 )
             }
@@ -240,7 +250,8 @@ fun AppNavigation(
             composable(Screen.PinEntry.route) {
                 PinEntryScreen(
                     viewModel             = paymentViewModel,
-                    onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) }
+                    onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) },
+                    onNavigateToResult    = { navController.navigate(Screen.Receipt.route) }
                 )
             }
 
@@ -259,7 +270,8 @@ fun AppNavigation(
                             popUpTo(Screen.MerchantPay.route) { inclusive = true }
                         }
                     },
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
+                    paymentViewModel = paymentViewModel
                 )
             }
 
@@ -293,9 +305,9 @@ fun BottomNavBar(navController: NavHostController) {
                 selected = selected,
                 onClick  = {
                     navController.navigate(item.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState    = true
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                        launchSingleTop = false
+                        restoreState    = false
                     }
                 },
                 icon   = { Icon(item.icon, contentDescription = item.label) },
