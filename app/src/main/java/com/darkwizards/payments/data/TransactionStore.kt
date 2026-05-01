@@ -11,10 +11,16 @@ class TransactionStore {
     private val _transactions = MutableStateFlow<List<TransactionRecord>>(emptyList())
     val transactions: StateFlow<List<TransactionRecord>> = _transactions.asStateFlow()
 
+    // Simple version counter — incremented on every mutation.
+    // Used by UI to detect changes even when StateFlow doesn't trigger recomposition.
+    private val _version = MutableStateFlow(0)
+    val version: StateFlow<Int> = _version.asStateFlow()
+
     fun addTransaction(record: TransactionRecord) {
         _transactions.update { current ->
             (current + record).sortedByDescending { it.dateTime }
         }
+        _version.value++
     }
 
     fun updateTransactionStatus(transactionId: String, newStatus: TransactionStatus) {
@@ -27,6 +33,7 @@ class TransactionStore {
                 }
             }
         }
+        _version.value++
     }
 
     fun getTransaction(transactionId: String): TransactionRecord? {

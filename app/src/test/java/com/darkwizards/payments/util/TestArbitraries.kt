@@ -620,6 +620,7 @@ fun Arb.Companion.emvResponseMissingOneTag(): Arb<Pair<IsoDep, Int>> = arbitrary
     every { isoDep.isConnected } returns false
     every { isoDep.connect() } returns Unit
     every { isoDep.timeout = any() } returns Unit
+    every { isoDep.maxTransceiveLength } returns 261
 
     // Wire up transceive responses based on APDU command bytes
     // EmvKernel sends APDUs in this order:

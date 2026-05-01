@@ -51,6 +51,10 @@ class PaymentViewModelNfcPropertyTest : FunSpec({
         Dispatchers.setMain(testDispatcher)
         mockkObject(EmvKernel)
         mockkStatic(NfcAdapter::class)
+        mockkStatic(android.util.Log::class)
+        every { android.util.Log.d(any(), any()) } returns 0
+        every { android.util.Log.e(any(), any()) } returns 0
+        every { android.util.Log.i(any(), any()) } returns 0
     }
 
     afterEach {
@@ -292,6 +296,10 @@ class PaymentViewModelNfcPropertyTest : FunSpec({
             val store = TransactionStore()
             val isoDep = mockk<IsoDep>()
             val tag = mockk<Tag>()
+
+            // Explicitly mock getToken to avoid ClassCastException from relaxed mock
+            coEvery { paymentService.getToken() } returns Result.success("test-token")
+            coEvery { paymentService.getAllTransactions(any()) } returns Result.success(emptyList())
 
             // Mock EmvKernel.readCard to return a failure Result for this failure mode
             coEvery { EmvKernel.readCard(isoDep) } returns Result.failure(failure)

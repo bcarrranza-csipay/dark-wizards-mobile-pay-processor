@@ -2,33 +2,21 @@ package com.darkwizards.payments.ui.navigation
 
 import android.app.Activity
 import android.nfc.NfcAdapter
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -36,9 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -48,17 +33,25 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.darkwizards.payments.ui.screen.CardNotPresentScreen
-import com.darkwizards.payments.ui.screen.PaymentScreen
+import com.darkwizards.payments.ui.screen.ManualEntryScreen
+import com.darkwizards.payments.ui.screen.MerchantPayScreen
+import com.darkwizards.payments.ui.screen.PaymentOptionsScreen
+import com.darkwizards.payments.ui.screen.PaymentTypeScreen
 import com.darkwizards.payments.ui.screen.PinEntryScreen
+import com.darkwizards.payments.ui.screen.ReceiptScreen
+import com.darkwizards.payments.ui.screen.SettingsScreen
 import com.darkwizards.payments.ui.screen.SignatureCaptureScreen
 import com.darkwizards.payments.ui.screen.TapScreen
+import com.darkwizards.payments.ui.screen.TotalAmountScreen
 import com.darkwizards.payments.ui.screen.TransactionDetailScreen
 import com.darkwizards.payments.ui.screen.TransactionReportScreen
 import com.darkwizards.payments.ui.screen.TransactionResultScreen
-import com.darkwizards.payments.ui.viewmodel.PaymentMode
+import com.darkwizards.payments.ui.theme.LocalColorTokens
 import com.darkwizards.payments.ui.viewmodel.PaymentViewModel
+import com.darkwizards.payments.ui.viewmodel.SettingsViewModel
 import com.darkwizards.payments.ui.viewmodel.TransactionViewModel
+
+// ── Bottom nav items ──────────────────────────────────────────────────────────
 
 data class BottomNavItem(
     val label: String,
@@ -67,265 +60,273 @@ data class BottomNavItem(
 )
 
 val bottomNavItems = listOf(
-    BottomNavItem("Pay",          Icons.Default.CreditCard, Screen.Payment.route),
+    BottomNavItem("Pay",          Icons.Default.CreditCard, Screen.MerchantPay.route),
     BottomNavItem("Transactions", Icons.Default.Receipt,    Screen.TransactionReport.route),
-    BottomNavItem("Settings",     Icons.Default.Settings,   "settings")
+    BottomNavItem("Settings",     Icons.Default.Settings,   Screen.Settings.route)
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Routes that belong to the customer flow.
+ *
+ * The Home Bar is hidden whenever the current destination is in this set, ensuring
+ * the merchant navigation is never visible during a customer payment session.
+ * This set is the single source of truth for Home Bar visibility — keep it in sync
+ * with [Screen] additions.
+ */
+val customerRoutes = setOf(
+    Screen.PaymentOptions.route,
+    Screen.TotalAmount.route,
+    Screen.PaymentType.route,
+    Screen.CardPresent.route,
+    Screen.ManualEntry.route,
+    Screen.PinEntry.route,
+    Screen.SignatureCapture.route,
+    Screen.Receipt.route
+)
+
+// ── AppNavigation ─────────────────────────────────────────────────────────────
+
 @Composable
 fun AppNavigation(
     paymentViewModel: PaymentViewModel,
-    transactionViewModel: TransactionViewModel
+    transactionViewModel: TransactionViewModel,
+    settingsViewModel: SettingsViewModel
 ) {
-    val navController   = rememberNavController()
-    val selectedMode    by paymentViewModel.selectedMode.collectAsState()
-    val showModePicker  by paymentViewModel.showModePicker.collectAsState()
-    val sheetState      = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    Scaffold(
-            bottomBar = { BottomNavBar(navController, onSettingsTap = { paymentViewModel.openModePicker() }) }
-        ) { innerPadding ->
-            NavHost(
-                navController    = navController,
-                startDestination = Screen.Payment.route,
-                modifier         = Modifier.padding(innerPadding)
-            ) {
-                composable(Screen.Payment.route) {
-                    PaymentScreen(
-                        viewModel        = paymentViewModel,
-                        onCardPresent    = { navController.navigate(Screen.CardPresent.route) },
-                        onCardNotPresent = { navController.navigate(Screen.CardNotPresent.route) }
-                    )
-                }
-                composable(Screen.CardPresent.route) {
-                    val context = LocalContext.current
-                    TapScreen(
-                        viewModel            = paymentViewModel,
-                        nfcAdapter           = NfcAdapter.getDefaultAdapter(context),
-                        activity             = context as Activity,
-                        onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) },
-                        onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) },
-                        onNavigateToResult   = { navController.navigate(Screen.TransactionResult.route) },
-                        onNavigateBack       = {
-                            navController.navigate(Screen.Payment.route) {
-                                popUpTo(Screen.Payment.route) { inclusive = false }
-                            }
-                        }
-                    )
-                }
-                composable(Screen.CardNotPresent.route) {
-                    CardNotPresentScreen(
-                        viewModel            = paymentViewModel,
-                        onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) },
-                        onNavigateBack       = { navController.popBackStack() }
-                    )
-                }
-                composable(Screen.PinEntry.route) {
-                    PinEntryScreen(
-                        viewModel               = paymentViewModel,
-                        onNavigateToSignature   = { navController.navigate(Screen.SignatureCapture.route) }
-                    )
-                }
-                composable(Screen.SignatureCapture.route) {
-                    SignatureCaptureScreen(
-                        viewModel            = paymentViewModel,
-                        onNavigateToResult   = { navController.navigate(Screen.TransactionResult.route) }
-                    )
-                }
-                composable(Screen.TransactionResult.route) {
-                    TransactionResultScreen(
-                        viewModel  = paymentViewModel,
-                        onNewPayment = {
-                            navController.navigate(Screen.Payment.route) {
-                                popUpTo(Screen.Payment.route) { inclusive = true }
-                            }
-                        }
-                    )
-                }
-                composable(Screen.TransactionReport.route) {
-                    TransactionReportScreen(
-                        viewModel            = transactionViewModel,
-                        onTransactionClick   = { transactionId ->
-                            navController.navigate(Screen.TransactionDetail.createRoute(transactionId))
-                        }
-                    )
-                }
-                composable(
-                    route     = Screen.TransactionDetail.route,
-                    arguments = listOf(navArgument("transactionId") { type = NavType.StringType })
-                ) { backStackEntry ->
-                    val transactionId = backStackEntry.arguments?.getString("transactionId") ?: ""
-                    TransactionDetailScreen(
-                        viewModel     = transactionViewModel,
-                        transactionId = transactionId,
-                        onBack        = { navController.popBackStack() }
-                    )
-                }
-            }
-        }
-
-    // ── Mode picker bottom sheet ──────────────────────────────────────────
-    if (showModePicker) {
-        ModalBottomSheet(
-            onDismissRequest = { paymentViewModel.closeModePicker() },
-            sheetState       = sheetState,
-            containerColor   = MaterialTheme.colorScheme.surface,
-        ) {
-            ModePickerSheet(
-                currentMode  = selectedMode,
-                onModeSelect = { paymentViewModel.selectMode(it) }
-            )
-        }
-    }
-}
-
-// ── Mode picker sheet content ─────────────────────────────────────────────────
-
-@Composable
-private fun ModePickerSheet(
-    currentMode: PaymentMode,
-    onModeSelect: (PaymentMode) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp)
-            .padding(bottom = 32.dp)
-    ) {
-        Text(
-            text       = "Payment Mode",
-            style      = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color      = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text  = "Select how the app processes payments",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        HorizontalDivider()
-        Spacer(modifier = Modifier.height(8.dp))
-
-        PaymentMode.entries.forEach { mode ->
-            val isLive     = mode == PaymentMode.LIVE
-            val isSelected = mode == currentMode
-            val rowAlpha   = if (isLive) 0.38f else 1f
-            val textColor  = when {
-                isSelected && !isLive -> MaterialTheme.colorScheme.primary
-                else                  -> MaterialTheme.colorScheme.onSurface
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = !isLive) { onModeSelect(mode) }
-                    .padding(vertical = 4.dp)
-            ) {
-                RadioButton(
-                    selected = isSelected,
-                    onClick  = { if (!isLive) onModeSelect(mode) },
-                    colors   = RadioButtonDefaults.colors(
-                        selectedColor   = MaterialTheme.colorScheme.primary,
-                        unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = rowAlpha)
-                    )
-                )
-                Column(
-                    modifier = Modifier
-                        .padding(start = 4.dp)
-                        .weight(1f)
-                ) {
-                    Text(
-                        text       = mode.label,
-                        style      = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (isSelected && !isLive) FontWeight.SemiBold else FontWeight.Normal,
-                        color      = textColor.copy(alpha = rowAlpha)
-                    )
-                    val subtitle = when (mode) {
-                        PaymentMode.SIMULATOR -> "Local in-memory simulation"
-                        PaymentMode.MOCK      -> "Realistic sandbox responses"
-                        PaymentMode.LIVE      -> "Real gateway — coming soon"
-                    }
-                    Text(
-                        text  = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = rowAlpha)
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ── Bottom nav ────────────────────────────────────────────────────────────────
-
-@Composable
-fun BottomNavBar(navController: NavHostController, onSettingsTap: () -> Unit) {
+    val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
+    // Collect transactions at the AppNavigation level — this ensures the
+    // StateFlow is always actively collected regardless of which screen is visible.
+    // Pass the list down to TransactionReportScreen as a parameter.
+    val allTransactions by transactionViewModel.transactions.collectAsState()
+
+    // Hide the Home Bar on all customer screens
+    val showBottomBar = currentDestination?.route !in customerRoutes
+
+    Scaffold(
+        containerColor = LocalColorTokens.current.backgroundColor,
+        bottomBar = {
+            if (showBottomBar) {
+                BottomNavBar(navController = navController)
+            }
+        }
+    ) { innerPadding ->
+        NavHost(
+            navController    = navController,
+            startDestination = Screen.MerchantPay.route,
+            modifier         = Modifier.padding(innerPadding)
+        ) {
+
+            // ── Merchant screens ──────────────────────────────────────────────
+
+            composable(Screen.MerchantPay.route) {
+                // Refresh transactions from server every time we return to MerchantPay
+                // (which happens after every completed payment via Receipt → MerchantPay)
+                LaunchedEffect(Unit) {
+                    transactionViewModel.loadTransactionsFromServer()
+                }
+                MerchantPayScreen(
+                    navController = navController
+                )
+            }
+
+            composable(Screen.Settings.route) {
+                SettingsScreen(
+                    settingsViewModel = settingsViewModel
+                )
+            }
+
+            composable(Screen.TransactionReport.route) {
+                TransactionReportScreen(
+                    viewModel          = transactionViewModel,
+                    transactions       = allTransactions,
+                    onTransactionClick = { transactionId ->
+                        navController.navigate(Screen.TransactionDetail.createRoute(transactionId))
+                    }
+                )
+            }
+
+            composable(
+                route     = Screen.TransactionDetail.route,
+                arguments = listOf(navArgument("transactionId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val transactionId = backStackEntry.arguments?.getString("transactionId") ?: ""
+                TransactionDetailScreen(
+                    viewModel     = transactionViewModel,
+                    transactionId = transactionId,
+                    onBack        = { navController.popBackStack() }
+                )
+            }
+
+            // ── Customer screens ──────────────────────────────────────────────
+
+            composable(
+                route     = Screen.PaymentOptions.route,
+                arguments = listOf(navArgument("baseAmountCents") { type = NavType.IntType })
+            ) { backStackEntry ->
+                val baseAmountCents = backStackEntry.arguments?.getInt("baseAmountCents") ?: 0
+                PaymentOptionsScreen(
+                    baseAmountCents   = baseAmountCents,
+                    navController     = navController,
+                    settingsViewModel = settingsViewModel
+                )
+            }
+
+            composable(
+                route     = Screen.TotalAmount.route,
+                arguments = listOf(
+                    navArgument("baseAmountCents") { type = NavType.IntType },
+                    navArgument("cardType")        { type = NavType.StringType },
+                    navArgument("surchargeCents")  { type = NavType.IntType }
+                )
+            ) { backStackEntry ->
+                val baseAmountCents = backStackEntry.arguments?.getInt("baseAmountCents") ?: 0
+                val cardType        = backStackEntry.arguments?.getString("cardType") ?: "debit"
+                val surchargeCents  = backStackEntry.arguments?.getInt("surchargeCents") ?: 0
+                TotalAmountScreen(
+                    baseAmountCents   = baseAmountCents,
+                    cardType          = cardType,
+                    surchargeCents    = surchargeCents,
+                    navController     = navController,
+                    settingsViewModel = settingsViewModel
+                )
+            }
+
+            composable(
+                route     = Screen.PaymentType.route,
+                arguments = listOf(
+                    navArgument("baseAmountCents") { type = NavType.IntType },
+                    navArgument("cardType")        { type = NavType.StringType },
+                    navArgument("surchargeCents")  { type = NavType.IntType },
+                    navArgument("tipCents")        { type = NavType.IntType }
+                )
+            ) { backStackEntry ->
+                val baseAmountCents  = backStackEntry.arguments?.getInt("baseAmountCents") ?: 0
+                @Suppress("UNUSED_VARIABLE")
+                val cardType         = backStackEntry.arguments?.getString("cardType") ?: "debit"
+                val surchargeCents   = backStackEntry.arguments?.getInt("surchargeCents") ?: 0
+                val tipCents         = backStackEntry.arguments?.getInt("tipCents") ?: 0
+                val totalAmountCents = baseAmountCents + surchargeCents + tipCents
+                // Store the card issuer so CVM routing works correctly
+                paymentViewModel.setCardIssuer(cardType)
+                PaymentTypeScreen(
+                    totalAmountCents    = totalAmountCents,
+                    onCardPresent       = {
+                        navController.navigate(Screen.CardPresent.route)
+                    },
+                    onCardNotPresent    = {
+                        navController.navigate(Screen.ManualEntry.createRoute(totalAmountCents))
+                    },
+                    onNavigateBack      = { navController.popBackStack() },
+                    paymentViewModel    = paymentViewModel,
+                    totalAmountDollars  = "%.2f".format(totalAmountCents / 100.0)
+                )
+            }
+
+            // Card Present (TapScreen) — back navigates to PaymentType
+            composable(Screen.CardPresent.route) {
+                val context = LocalContext.current
+                TapScreen(
+                    viewModel             = paymentViewModel,
+                    nfcAdapter            = NfcAdapter.getDefaultAdapter(context),
+                    activity              = context as Activity,
+                    onNavigateToPinEntry  = { navController.navigate(Screen.PinEntry.route) },
+                    onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) },
+                    onNavigateToResult    = { navController.navigate(Screen.Receipt.route) },
+                    onNavigateBack        = { navController.popBackStack() }
+                )
+            }
+
+            composable(
+                route     = Screen.ManualEntry.route,
+                arguments = listOf(navArgument("totalAmountCents") { type = NavType.IntType })
+            ) { backStackEntry ->
+                val totalAmountCents = backStackEntry.arguments?.getInt("totalAmountCents") ?: 0
+                ManualEntryScreen(
+                    totalAmountCents  = totalAmountCents,
+                    settingsViewModel = settingsViewModel,
+                    paymentViewModel  = paymentViewModel,
+                    onNavigateToPinEntry = { navController.navigate(Screen.PinEntry.route) },
+                    onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) },
+                    onNavigateBack    = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.PinEntry.route) {
+                PinEntryScreen(
+                    viewModel             = paymentViewModel,
+                    onNavigateToSignature = { navController.navigate(Screen.SignatureCapture.route) },
+                    onNavigateToResult    = { navController.navigate(Screen.Receipt.route) }
+                )
+            }
+
+            composable(Screen.SignatureCapture.route) {
+                SignatureCaptureScreen(
+                    viewModel          = paymentViewModel,
+                    onNavigateToResult = { navController.navigate(Screen.Receipt.route) },
+                    onNavigateBack     = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.Receipt.route) {
+                ReceiptScreen(
+                    onNavigateToMerchantPay = {
+                        navController.navigate(Screen.MerchantPay.route) {
+                            popUpTo(Screen.MerchantPay.route) { inclusive = true }
+                        }
+                    },
+                    onNavigateBack = { navController.popBackStack() },
+                    paymentViewModel = paymentViewModel,
+                    transactionViewModel = transactionViewModel
+                )
+            }
+
+            // Legacy TransactionResult — kept for backward compatibility
+            composable(Screen.TransactionResult.route) {
+                TransactionResultScreen(
+                    viewModel    = paymentViewModel,
+                    onNewPayment = {
+                        navController.navigate(Screen.MerchantPay.route) {
+                            popUpTo(Screen.MerchantPay.route) { inclusive = true }
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+// ── Bottom nav bar ────────────────────────────────────────────────────────────
+
+@Composable
+fun BottomNavBar(navController: NavHostController) {
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = navBackStackEntry?.destination
+    val homeBarColor = LocalColorTokens.current.homeBarColor
+
+    NavigationBar(containerColor = homeBarColor) {
         bottomNavItems.forEach { item ->
             val selected = currentDestination?.hierarchy?.any { it.route == item.route } == true
             NavigationBarItem(
                 selected = selected,
                 onClick  = {
-                    if (item.route == "settings") {
-                        onSettingsTap()
-                    } else {
-                        navController.navigate(item.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState    = true
-                        }
+                    navController.navigate(item.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                        launchSingleTop = false
+                        restoreState    = false
                     }
                 },
                 icon   = { Icon(item.icon, contentDescription = item.label) },
                 label  = { Text(item.label) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor   = MaterialTheme.colorScheme.primary,
-                    selectedTextColor   = MaterialTheme.colorScheme.primary,
-                    indicatorColor      = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    indicatorColor      = Color.White,
+                    selectedIconColor   = homeBarColor,
+                    selectedTextColor   = Color.White,
+                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                    unselectedTextColor = Color.White.copy(alpha = 0.6f)
                 )
             )
         }
     }
 }
-
-// ── Mode badge ────────────────────────────────────────────────────────────────
-
-/**
- * Tappable pill badge in the top-right corner.
- *
- *  Tony MCP  → blue-grey
- *  Sandbox   → amber
- *  Live      → green (disabled)
- */
-@Composable
-fun ModeBadge(
-    mode:     PaymentMode,
-    onClick:  () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val bgColor = when (mode) {
-        PaymentMode.LIVE      -> Color(0xFF2E7D32)   // dark green
-        PaymentMode.MOCK      -> Color(0xFFF57F17)   // amber
-        PaymentMode.SIMULATOR -> Color(0xFF546E7A)   // blue-grey
-    }
-
-    Text(
-        text     = mode.label,
-        color    = Color.White,
-        fontSize = 10.sp,
-        modifier = modifier
-            .background(color = bgColor, shape = RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 3.dp)
-    )
-}
-

@@ -24,11 +24,16 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -48,6 +53,9 @@ fun TransactionDetailScreen(
 ) {
     val transaction by viewModel.selectedTransaction.collectAsState()
     val refundState by viewModel.refundState.collectAsState()
+
+    var showSendReceipt by remember { mutableStateOf(false) }
+    var contactInput by remember { mutableStateOf("") }
 
     LaunchedEffect(transactionId) {
         viewModel.selectTransaction(transactionId)
@@ -224,6 +232,52 @@ fun TransactionDetailScreen(
                         )
                     ) {
                         Text("Retry Refund", color = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+            }
+
+            // Send Receipt section
+            Spacer(modifier = Modifier.height(12.dp))
+            if (!showSendReceipt) {
+                OutlinedButton(
+                    onClick = { showSendReceipt = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Send Receipt")
+                }
+            } else {
+                OutlinedTextField(
+                    value = contactInput,
+                    onValueChange = { contactInput = it },
+                    label = { Text("Email or Phone") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            showSendReceipt = false
+                            contactInput = ""
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = {
+                            showSendReceipt = false
+                            contactInput = ""
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text("Send", color = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             }

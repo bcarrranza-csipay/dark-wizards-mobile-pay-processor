@@ -116,13 +116,14 @@ class PaymentViewModelTest : FunSpec({
         vm.uiState.value.shouldBeInstanceOf<PaymentUiState.PinEntry>()
     }
 
-    test("submitCardPresent transitions to PinEntry") {
+    test("submitCardPresent stores pending amount and stays in CardPresentEntry") {
         fakeService.tokenResult = Result.success("token")
         val vm = createViewModel()
         testDispatcher.scheduler.advanceUntilIdle()
         vm.selectPaymentType(PaymentType.CARD_PRESENT)
         vm.submitCardPresent("50.00")
-        vm.uiState.value.shouldBeInstanceOf<PaymentUiState.PinEntry>()
+        // submitCardPresent stores the amount for the NFC flow but does not change state
+        vm.uiState.value.shouldBeInstanceOf<PaymentUiState.CardPresentEntry>()
     }
 
     test("submitPin with 4 digits transitions to SignatureCapture") {
