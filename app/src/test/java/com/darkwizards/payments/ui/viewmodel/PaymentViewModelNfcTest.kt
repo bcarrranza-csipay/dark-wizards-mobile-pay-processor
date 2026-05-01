@@ -70,6 +70,10 @@ class PaymentViewModelNfcTest : FunSpec({
         store = TransactionStore()
         mockkObject(EmvKernel)
         mockkStatic(NfcAdapter::class)
+        mockkStatic(android.util.Log::class)
+        every { android.util.Log.d(any(), any()) } returns 0
+        every { android.util.Log.e(any(), any()) } returns 0
+        every { android.util.Log.i(any(), any()) } returns 0
     }
 
     afterEach {

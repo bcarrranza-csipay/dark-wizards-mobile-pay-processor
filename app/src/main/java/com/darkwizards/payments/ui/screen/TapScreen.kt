@@ -14,22 +14,19 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contactless
@@ -39,8 +36,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -56,13 +51,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.darkwizards.payments.data.model.CvmResult
 import com.darkwizards.payments.data.model.NfcAvailability
 import com.darkwizards.payments.data.model.PaymentUiState
+import com.darkwizards.payments.ui.theme.LocalColorTokens
 import com.darkwizards.payments.ui.viewmodel.PaymentViewModel
 import com.darkwizards.payments.util.NfcLogger
 
@@ -78,17 +73,10 @@ fun TapScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
-
-    // Local amount state — entered before NFC activates
-    var amount by remember { mutableStateOf("") }
-    var amountError by remember { mutableStateOf(false) }
-    var nfcStarted by remember { mutableStateOf(false) }
+    val colorTokens = LocalColorTokens.current
 
     // Debug log overlay state
     var showLogs by remember { mutableStateOf(false) }
-
-    // Only check NFC availability after user taps "Start Tap-to-Pay"
-    // (not on screen entry — avoids starting the 60s timeout during amount entry)
 
     // Enable NFC reader mode on entry, disable on exit
     DisposableEffect(Unit) {
@@ -173,7 +161,7 @@ fun TapScreen(
                         Button(
                             onClick = onNavigateBack,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondary
+                                containerColor = colorTokens.spinnerColor
                             )
                         ) {
                             Text("Go Back")
@@ -181,7 +169,7 @@ fun TapScreen(
                     }
                     is NfcAvailability.Available -> {
                         // Transitional — checkNfcAvailability will move to NfcWaiting
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        CircularProgressIndicator(color = colorTokens.spinnerColor)
                     }
                 }
             }
@@ -192,12 +180,6 @@ fun TapScreen(
                     text = "Tap-to-Pay",
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onBackground
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "$$amount",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.height(32.dp))
 
@@ -214,7 +196,7 @@ fun TapScreen(
                 Icon(
                     imageVector = Icons.Default.Contactless,
                     contentDescription = "NFC contactless icon",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = colorTokens.tapIconColor,
                     modifier = Modifier
                         .size(96.dp)
                         .graphicsLayer { rotationZ = rotation }
@@ -230,7 +212,7 @@ fun TapScreen(
                 Button(
                     onClick = onNavigateBack,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
+                        containerColor = colorTokens.spinnerColor
                     )
                 ) {
                     Text("Cancel")
@@ -240,7 +222,7 @@ fun TapScreen(
             // ── Reading card (EMV dialogue in progress) ───────────────────────
             is PaymentUiState.NfcReading -> {
                 CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = colorTokens.spinnerColor,
                     modifier = Modifier.size(64.dp)
                 )
                 Spacer(modifier = Modifier.height(24.dp))
@@ -255,7 +237,7 @@ fun TapScreen(
             // ── Submitting to Pyxis ───────────────────────────────────────────
             is PaymentUiState.NfcSubmitting -> {
                 CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = colorTokens.spinnerColor,
                     modifier = Modifier.size(64.dp)
                 )
                 Spacer(modifier = Modifier.height(24.dp))
@@ -270,7 +252,7 @@ fun TapScreen(
             // ── CVM required — navigation handled by LaunchedEffect above ─────
             is PaymentUiState.NfcCvmRequired -> {
                 CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = colorTokens.spinnerColor,
                     modifier = Modifier.size(64.dp)
                 )
             }
@@ -293,7 +275,7 @@ fun TapScreen(
                 Button(
                     onClick = onNavigateBack,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
+                        containerColor = colorTokens.spinnerColor
                     )
                 ) {
                     Text("Cancel")
@@ -329,7 +311,7 @@ fun TapScreen(
                 Button(
                     onClick = onNavigateBack,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
+                        containerColor = colorTokens.spinnerColor
                     )
                 ) {
                     Text("Cancel")
@@ -339,82 +321,60 @@ fun TapScreen(
             // ── Success — navigation handled by LaunchedEffect above ──────────
             is PaymentUiState.Success -> {
                 CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = colorTokens.spinnerColor,
                     modifier = Modifier.size(64.dp)
                 )
             }
 
-            // ── All other states (Loading, SelectPaymentType, CardPresentEntry, etc.) ───────────
-            else -> {
-                // Show amount entry if NFC hasn't started yet
-                if (!nfcStarted) {
-                    Text(
-                        text = "Tap-to-Pay",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    val textFieldColors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        focusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedTextField(
-                        value = amount,
-                        onValueChange = { amount = it; amountError = false },
-                        label = { Text("Amount ($)") },
-                        isError = amountError,
-                        supportingText = if (amountError) {{ Text("Enter a valid amount") }} else null,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = textFieldColors,
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = {
-                            if (amount.isBlank() || amount.toDoubleOrNull() == null || amount.toDouble() <= 0) {
-                                amountError = true
-                            } else {
-                                viewModel.submitCardPresent(amount)
-                                viewModel.checkNfcAvailability(context)
-                                nfcStarted = true
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Start Tap-to-Pay")
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = onNavigateBack,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary
-                        )
-                    ) {
-                        Text("Cancel")
-                    }
-                } else {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(64.dp)
-                    )
+            // ── Transaction declined ──────────────────────────────────────────
+            is PaymentUiState.Error -> {
+                Text(
+                    text = "Transaction Declined: Please contact your bank or try a different card.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(32.dp))
+                Button(
+                    onClick = onNavigateBack,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colorTokens.button1Color
+                    ),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(50)
+                ) {
+                    Text("Try Different Payment Method")
                 }
+            }
+
+            // ── All other states ──────────────────────────────────────────────
+            else -> {
+                CircularProgressIndicator(
+                    color = colorTokens.spinnerColor,
+                    modifier = Modifier.size(64.dp)
+                )
             }
         }
     } // end Column
 
-        // ── Debug log button — top-left corner ────────────────────────────
+        // ── Back arrow — top-left corner ──────────────────────────────────
+        IconButton(
+            onClick = onNavigateBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowBack,
+                contentDescription = "Navigate back",
+                tint = MaterialTheme.colorScheme.onBackground
+            )
+        }
+
+        // ── Debug log button — top-right corner ───────────────────────────
         IconButton(
             onClick = { showLogs = !showLogs },
             modifier = Modifier
-                .align(Alignment.TopStart)
+                .align(Alignment.TopEnd)
                 .padding(4.dp)
                 .size(32.dp)
                 .background(Color.Black.copy(alpha = 0.25f), CircleShape)
